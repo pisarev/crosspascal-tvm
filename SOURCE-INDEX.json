@@ -1,0 +1,57 @@
+{
+  "RELEASE_READY": false,
+  "final_native_validation": "NOT_APPLICABLE_TO_DECLARED_SOURCE_ONLY_SCOPE",
+  "local_metadata": [
+    {
+      "kind": "file_or_directory",
+      "path": ".git",
+      "reason": "Git working-copy metadata; excluded from distributed payload"
+    }
+  ],
+  "manifest_self_excluded": true,
+  "members": [
+    {
+      "bytes": 8,
+      "path": ".gitattributes",
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    {
+      "bytes": 1070,
+      "path": "LICENSE",
+      "sha256": "04b643fe3d2d95be3b9a0ad9d3882d00a9b2d9dfb74694f35fe8edfc77e67815"
+    },
+    {
+      "bytes": 1372,
+      "path": "README.md",
+      "sha256": "a87da4d66696518aeaa9ca296a860c964272db8ab50d60df3a791e786655b999"
+    },
+    {
+      "bytes": 12308,
+      "path": "licenses/TVM-LICENSE",
+      "sha256": "7cd3b9cb57596d291cc44488f7c55b5a91ea652dc2bb0ca6098d5508765c23e5"
+    },
+    {
+      "bytes": 169,
+      "path": "licenses/TVM-NOTICE",
+      "sha256": "12f909aa8ba41e34538c42d511291bf47343281ef0310e331153e761623cc44e"
+    },
+    {
+      "bytes": 1397,
+      "path": "recipes/TVMBuildOptions.txt",
+      "sha256": "7c07af06516ac349d8c46052a1b75f98add1d4b569fe512d9d6cb7c01ecb9bba"
+    },
+    {
+      "bytes": 13487,
+      "path": "scripts/verify_source.py",
+      "sha256": "baaa76f4b0328b889d09acb390a5f5f7baed1c4c6accbb0a074db4b8c050426c"
+    }
+  ],
+  "preparation_complete": true,
+  "preparation_scope": "Declared source preview only",
+  "private_testing_draft": true,
+  "public_opening_authorized": false,
+  "publication_copy_date": "2026-11-04",
+  "repository": "crosspascal-tvm",
+  "schema": "crosspascal-private-source-preview-index-v1",
+  "source_preview_ready_for_private_testing": true
+}
