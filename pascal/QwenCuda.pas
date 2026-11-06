@@ -2,7 +2,7 @@
 {                                                                            }
 { QwenCuda                                                                   }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -34,12 +34,27 @@ const
   QwenContextSize = 64;
   QwenDefaultContextSize = 2048;
   QwenDefaultMaxNewTokens = 0;
+  QwenMaxTopK = 128;
 
 type
   EQwenCuda = class(Exception);
   EQwenCudaCancelled = class(EQwenCuda);
   TQwenProgress = {$IFDEF FPC}procedure(const MessageText: string) of object{$ELSE}reference to procedure(const MessageText: string){$ENDIF};
   TQwenStopRequested = function: Boolean of object;
+
+  TQwenSamplingMode = (qsDefault, qsSample, qsGreedy);
+  TQwenAnswerEffort = (qeFullContext, qeBrief, qeBalanced, qeDetailed);
+
+  TQwenGenerationOptions = record
+    MaxNewTokens: Int64;
+    Sampling: TQwenSamplingMode;
+    Effort: TQwenAnswerEffort;
+    Temperature: Double;
+    TopP: Double;
+    TopK: Integer;
+    RepetitionPenalty: Double;
+    Seed: Int64;
+  end;
 
   TQwenCudaResult = record
     ProfileID: string;
@@ -57,14 +72,22 @@ type
     GeneratedTokenIDs: TArray<Integer>;
     ContextTokens: Integer;
     AvailableNewTokens: Integer;
+    GenerationOptions: TQwenGenerationOptions;
+    Sampled: Boolean;
+    SamplingSeed: Cardinal;
     Answer: string;
     StopReason: string;
     ElapsedMilliseconds: UInt64;
   end;
 
+function DefaultQwenGenerationOptions: TQwenGenerationOptions;
+procedure ValidateQwenGenerationOptions(const Options: TQwenGenerationOptions);
 function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
   const MaxNewTokens: Int64; const Progress: TQwenProgress = nil;
-  const StopRequested: TQwenStopRequested = nil): TQwenCudaResult;
+  const StopRequested: TQwenStopRequested = nil): TQwenCudaResult; overload;
+function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
+  const Options: TQwenGenerationOptions; const Progress: TQwenProgress = nil;
+  const StopRequested: TQwenStopRequested = nil): TQwenCudaResult; overload;
 function QwenResultJSON(const Value: TQwenCudaResult): string;
 
 implementation
@@ -777,19 +800,42 @@ begin
     Require(Tensor.shape[I] = Shape[I], 'Unexpected CUDA tensor shape.');
 end;
 
-function SampleAutoToken(const Logits: TArray<Single>; const Seen: TArray<Boolean>;
-  var State: Cardinal): Integer;
-const
-  TopK = 20;
-  TopP = 0.8;
-  Temperature = 0.7;
-  RepetitionPenalty = 1.1;
+function DefaultQwenGenerationOptions: TQwenGenerationOptions;
+begin
+  Result.MaxNewTokens := QwenDefaultMaxNewTokens;
+  Result.Sampling := qsDefault;
+  Result.Effort := qeFullContext;
+  Result.Temperature := 0.7;
+  Result.TopP := 0.8;
+  Result.TopK := 20;
+  Result.RepetitionPenalty := 1.1;
+  Result.Seed := -1;
+end;
+
+procedure ValidateQwenGenerationOptions(const Options: TQwenGenerationOptions);
+begin
+  Require(Options.MaxNewTokens >= 0, 'Max new tokens must be 0 (Auto) or a positive whole number.');
+  Require(not IsNan(Options.Temperature) and (Options.Temperature >= 0.01)
+    and (Options.Temperature <= 2), 'Temperature must be between 0.01 and 2.');
+  Require(not IsNan(Options.TopP) and (Options.TopP > 0) and (Options.TopP <= 1),
+    'Top-P must be greater than 0 and at most 1.');
+  Require((Options.TopK >= 1) and (Options.TopK <= QwenMaxTopK),
+    Format('Top-K must be a whole number between 1 and %d.', [QwenMaxTopK]));
+  Require(not IsNan(Options.RepetitionPenalty) and (Options.RepetitionPenalty >= 1)
+    and (Options.RepetitionPenalty <= 2), 'Repetition penalty must be between 1 and 2.');
+  Require((Options.Seed >= -1) and (Options.Seed <= Int64(High(Cardinal))),
+    'Seed must be blank (random) or a whole number between 0 and 4294967295.');
+end;
+
+function SampleToken(const Logits: TArray<Single>; const Seen: TArray<Boolean>;
+  const Options: TQwenGenerationOptions; var State: Cardinal): Integer;
 var
-  Scores, Weights: array[0..TopK - 1] of Double;
-  Tokens: array[0..TopK - 1] of Integer;
-  I, J, Count, Kept: Integer;
+  Scores, Weights: array[0..QwenMaxTopK - 1] of Double;
+  Tokens: array[0..QwenMaxTopK - 1] of Integer;
+  I, J, Count, Kept, TopK: Integer;
   Score, Total, Mass, Draw: Double;
 begin
+  TopK := Options.TopK;
   Count := 0;
   for I := 0 to High(Logits) do
   begin
@@ -797,9 +843,9 @@ begin
     if Seen[I] then
     begin
       if Score < 0 then
-        Score := Score * RepetitionPenalty
+        Score := Score * Options.RepetitionPenalty
       else
-        Score := Score / RepetitionPenalty;
+        Score := Score / Options.RepetitionPenalty;
     end;
     if (Count = TopK) and (Score <= Scores[TopK - 1]) then
       Continue;
@@ -818,7 +864,7 @@ begin
   Total := 0;
   for I := 0 to Count - 1 do
   begin
-    Weights[I] := Exp((Scores[I] - Scores[0]) / Temperature);
+    Weights[I] := Exp((Scores[I] - Scores[0]) / Options.Temperature);
     Total := Total + Weights[I];
   end;
   Mass := 0;
@@ -826,7 +872,7 @@ begin
   repeat
     Mass := Mass + Weights[Kept];
     Inc(Kept);
-  until (Kept = Count) or (Mass >= TopP * Total);
+  until (Kept = Count) or (Mass >= Options.TopP * Total);
   State := Cardinal((UInt64(State) * 1664525 + 1013904223) and $FFFFFFFF);
   Draw := (State / 4294967296.0) * Mass;
   for I := 0 to Kept - 1 do
@@ -842,6 +888,19 @@ function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
   const MaxNewTokens: Int64; const Progress: TQwenProgress;
   const StopRequested: TQwenStopRequested): TQwenCudaResult;
 var
+  Options: TQwenGenerationOptions;
+begin
+  Options := DefaultQwenGenerationOptions;
+  Options.MaxNewTokens := MaxNewTokens;
+  Result := RunQwenCuda(BundleDirectory, RuntimeDirectory, Prompt, Options, Progress, StopRequested);
+end;
+
+function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
+  const Options: TQwenGenerationOptions; const Progress: TQwenProgress;
+  const StopRequested: TQwenStopRequested): TQwenCudaResult;
+const
+  EffortBudget: array[TQwenAnswerEffort] of Integer = (0, 128, 512, 1024);
+var
   Bundle, Runtime, ChatText, ModelArch, DeviceArch: string;
   ErrorText: {$IFDEF FPC}AnsiString{$ELSE}string{$ENDIF};
   Lease: TInputLease;
@@ -855,7 +914,7 @@ var
   Values: TArray<Single>;
   StepTokens: TArray<Integer>;
   Seen: TArray<Boolean>;
-  I, Step, TokenID, GenerationLimit: Integer;
+  I, Step, TokenID, GenerationLimit, AutoBudget: Integer;
   SampleState: Cardinal;
   Started: UInt64;
   Memory: TMemoryStatusEx;
@@ -885,9 +944,10 @@ begin
   LogitsTensor := nil;
   SequenceAdded := False;
   Result := Default(TQwenCudaResult);
+  Result.GenerationOptions := Options;
   try
     CheckStop;
-    Require(MaxNewTokens >= 0, 'Max new tokens must be 0 (Auto) or a positive whole number.');
+    ValidateQwenGenerationOptions(Options);
     Require((Trim(Prompt) <> '') and (Length(Prompt) <= 4096), 'Enter a short, nonempty prompt.');
     Bundle := DirectoryPath(BundleDirectory);
     Runtime := DirectoryPath(RuntimeDirectory);
@@ -936,18 +996,30 @@ begin
     );
     GenerationLimit := Result.AvailableNewTokens;
     Result.StopReason := 'context_limit';
-    if (MaxNewTokens > 0) and (MaxNewTokens < GenerationLimit) then
+    if (Options.MaxNewTokens > 0) and (Options.MaxNewTokens < GenerationLimit) then
     begin
-      GenerationLimit := Integer(MaxNewTokens);
+      GenerationLimit := Integer(Options.MaxNewTokens);
       Result.StopReason := 'max_new_tokens';
+    end;
+    AutoBudget := EffortBudget[Options.Effort];
+    if (Options.MaxNewTokens = 0) and (AutoBudget > 0) and (AutoBudget < GenerationLimit) then
+    begin
+      GenerationLimit := AutoBudget;
+      Result.StopReason := 'effort_limit';
     end;
     CheckStop;
     for TokenID in Result.PromptTokenIDs do
       Require((TokenID >= 0) and (TokenID < QwenVocabSize),
         'A prompt token is outside the model vocabulary.');
-    if MaxNewTokens = 0 then
+    Result.Sampled := (Options.Sampling = qsSample) or ((Options.Sampling = qsDefault) and
+      (Options.MaxNewTokens = 0));
+    if Result.Sampled then
     begin
-      SampleState := Cardinal(GetTickCount64 and $FFFFFFFF);
+      if Options.Seed < 0 then
+        SampleState := Cardinal(GetTickCount64 and $FFFFFFFF)
+      else
+        SampleState := Cardinal(Options.Seed);
+      Result.SamplingSeed := SampleState;
       SetLength(Seen, QwenVocabSize);
       for TokenID in Result.PromptTokenIDs do
         Seen[TokenID] := True;
@@ -1023,9 +1095,9 @@ begin
         Require(Length(Values) = QwenVocabSize, 'Unexpected number of output logits.');
         for I := 0 to High(Values) do
           Require(not IsNan(Values[I]) and not IsInfinite(Values[I]), 'The model returned nonfinite logits.');
-        if MaxNewTokens = 0 then
+        if Result.Sampled then
         begin
-          TokenID := SampleAutoToken(Values, Seen, SampleState);
+          TokenID := SampleToken(Values, Seen, Options, SampleState);
           Seen[TokenID] := True;
         end
         else
@@ -1068,8 +1140,10 @@ begin
 end;
 
 function QwenResultJSON(const Value: TQwenCudaResult): string;
+const
+  EffortName: array[TQwenAnswerEffort] of string = ('full_context', 'brief', 'balanced', 'detailed');
 var
-  Obj: TJSONObject;
+  Obj, Generation: TJSONObject;
   PromptIDs, GeneratedIDs: TJSONArray;
   TokenID: Integer;
 begin
@@ -1094,6 +1168,21 @@ begin
     Obj.AddPair('prompt', Value.Prompt);
     Obj.AddPair('context_tokens', JSONInteger(Value.ContextTokens));
     Obj.AddPair('available_new_tokens', JSONInteger(Value.AvailableNewTokens));
+    Generation := TJSONObject.Create;
+    Obj.AddPair('generation', Generation);
+    Generation.AddPair('max_new_tokens', JSONInteger(Value.GenerationOptions.MaxNewTokens));
+    Generation.AddPair('answer_effort', EffortName[Value.GenerationOptions.Effort]);
+    if Value.Sampled then
+    begin
+      Generation.AddPair('sampling', 'sample');
+      Generation.AddPair('temperature', JSONFloat(Value.GenerationOptions.Temperature));
+      Generation.AddPair('top_p', JSONFloat(Value.GenerationOptions.TopP));
+      Generation.AddPair('top_k', JSONInteger(Value.GenerationOptions.TopK));
+      Generation.AddPair('repetition_penalty', JSONFloat(Value.GenerationOptions.RepetitionPenalty));
+      Generation.AddPair('seed', JSONInteger(Value.SamplingSeed));
+    end
+    else
+      Generation.AddPair('sampling', 'greedy');
     PromptIDs := TJSONArray.Create;
     Obj.AddPair('prompt_token_ids', PromptIDs);
     for TokenID in Value.PromptTokenIDs do

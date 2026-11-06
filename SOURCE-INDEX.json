@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-010",
+  "release_id": "early-access-011",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -97,8 +97,8 @@
     },
     {
       "path": "pascal/QwenCuda.pas",
-      "bytes": 43937,
-      "sha256": "98b7a1abc8ab18ac5c3f70dfbf1b2014d1b1eeeae7e887f15a08e3c93fbbaa7e"
+      "bytes": 48107,
+      "sha256": "4d926b1c6305b83060efa865686f8b066929b3ae5155f1c2cddae4e59f00b07e"
     },
     {
       "path": "pascal/QwenModel.pas",
