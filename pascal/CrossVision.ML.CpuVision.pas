@@ -2,7 +2,7 @@
 {                                                                            }
 { CrossVision.ML.CpuVision                                                   }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                     }
 {                                                                            }
 { ************************************************************************** }
 

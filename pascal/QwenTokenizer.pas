@@ -2,7 +2,7 @@
 {                                                                            }
 { QwenTokenizer                                                              }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                     }
 {                                                                            }
 { ************************************************************************** }
 
@@ -35,6 +35,7 @@ type
       FSpecials: array of TSpecial;
       FLoaded: Boolean;
     function PieceToIds(const Piece: TBytes): TArray<Integer>;
+    function DecodeText(const Ids: array of Integer; const CompleteOnly: Boolean): UnicodeString;
     procedure SplitPiece(const Text: UnicodeString; const From, Upto: Integer;
       var Ids: TArray<Integer>; var Count: Integer);
     procedure Clear;
@@ -44,6 +45,7 @@ type
     function TokenCount: Integer; override;
     function Encode(const Text: UnicodeString): TArray<Integer>; overload; override;
     function Decode(const Ids: array of Integer): UnicodeString; override;
+    function DecodePrefix(const Ids: array of Integer): UnicodeString;
     function SpecialId(const Text: UnicodeString): Integer; override;
   end;
 
@@ -403,9 +405,20 @@ begin
 end;
 
 function TQwenTokenizer.Decode(const Ids: array of Integer): UnicodeString;
+begin
+  Result := DecodeText(Ids, False);
+end;
+
+function TQwenTokenizer.DecodePrefix(const Ids: array of Integer): UnicodeString;
+begin
+  Result := DecodeText(Ids, True);
+end;
+
+function TQwenTokenizer.DecodeText(const Ids: array of Integer;
+  const CompleteOnly: Boolean): UnicodeString;
 var
   Raw: TBytes;
-  Total, At, I: Integer;
+  Total, At, I, Width: Integer;
 begin
   RequireLoaded;
   Total := 0;
@@ -421,6 +434,28 @@ begin
         Move(FTokenData[FTokenAt[Ids[I]].Offset], Raw[At], FTokenAt[Ids[I]].Length);
       Inc(At, FTokenAt[Ids[I]].Length);
     end;
+  if CompleteOnly then
+  begin
+    At := Total - 1;
+    while At >= 0 do
+    begin
+      if (Raw[At] and $C0) <> $80 then
+        Break;
+      Dec(At);
+    end;
+    if At >= 0 then
+    begin
+      case Raw[At] of
+        $C2..$DF: Width := 2;
+        $E0..$EF: Width := 3;
+        $F0..$F4: Width := 4;
+      else
+        Width := 1;
+      end;
+      if Total - At < Width then
+        SetLength(Raw, At);
+    end;
+  end;
   Result := TEncoding.UTF8.GetString(Raw);
 end;
 

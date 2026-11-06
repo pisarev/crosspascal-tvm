@@ -75,9 +75,21 @@ type
     GenerationOptions: TQwenGenerationOptions;
     Sampled: Boolean;
     SamplingSeed: Cardinal;
+    ModelReused: Boolean;
     Answer: string;
     StopReason: string;
     ElapsedMilliseconds: UInt64;
+  end;
+
+  TQwenCudaSession = class
+  private
+    FState: TObject;
+  public
+    destructor Destroy; override;
+    function Run(const BundleDirectory, RuntimeDirectory, Prompt: string;
+      const Options: TQwenGenerationOptions; const Progress: TQwenProgress = nil;
+      const StopRequested: TQwenStopRequested = nil;
+      const TextUpdated: TQwenProgress = nil): TQwenCudaResult;
   end;
 
 function DefaultQwenGenerationOptions: TQwenGenerationOptions;
@@ -121,6 +133,17 @@ type
     destructor Destroy; override;
     function Hold(const Path: string; const ExpectedBytes: Int64 = -1;
       const ExpectedSHA256: string = ''): TFileStream;
+  end;
+
+  TQwenSessionState = class
+    Bundle: string;
+    Runtime: string;
+    Profile: TQwenCudaProfile;
+    Info: TQwenCudaResult;
+    Lease: TInputLease;
+    Model: TQwenModel;
+    Tokenizer: TQwenTokenizer;
+    destructor Destroy; override;
   end;
 
 const
@@ -898,18 +921,45 @@ end;
 function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
   const Options: TQwenGenerationOptions; const Progress: TQwenProgress;
   const StopRequested: TQwenStopRequested): TQwenCudaResult;
+var
+  Session: TQwenCudaSession;
+begin
+  Session := TQwenCudaSession.Create;
+  try
+    Result := Session.Run(BundleDirectory, RuntimeDirectory, Prompt, Options, Progress,
+      StopRequested);
+  finally
+    Session.Free;
+  end;
+end;
+
+destructor TQwenSessionState.Destroy;
+begin
+  Model.Unload;
+  Tokenizer.Free;
+  Lease.Free;
+  inherited Destroy;
+end;
+
+destructor TQwenCudaSession.Destroy;
+begin
+  FState.Free;
+  inherited Destroy;
+end;
+
+function TQwenCudaSession.Run(const BundleDirectory, RuntimeDirectory, Prompt: string;
+  const Options: TQwenGenerationOptions; const Progress: TQwenProgress;
+  const StopRequested: TQwenStopRequested; const TextUpdated: TQwenProgress): TQwenCudaResult;
 const
   EffortBudget: array[TQwenAnswerEffort] of Integer = (0, 128, 512, 1024);
 var
   Bundle, Runtime, ChatText, ModelArch, DeviceArch: string;
   ErrorText: {$IFDEF FPC}AnsiString{$ELSE}string{$ENDIF};
-  Lease: TInputLease;
+  State: TQwenSessionState;
   ModelInfo, Passport, ParamsInfo: TJSONObject;
   ModelStream, IndexStream, ParamsStream: TFileStream;
   Profile: TQwenCudaProfile;
   ParameterBytes, CacheBytes, WorkspaceBytes: Int64;
-  Tokenizer: TQwenTokenizer;
-  Model: TQwenModel;
   EmbedTensor, LogitsTensor: TTVMFFIObjectHandle;
   Values: TArray<Single>;
   StepTokens: TArray<Integer>;
@@ -918,7 +968,7 @@ var
   SampleState: Cardinal;
   Started: UInt64;
   Memory: TMemoryStatusEx;
-  SequenceAdded, Generic: Boolean;
+  SequenceAdded, Generic, Reused, Succeeded: Boolean;
 
   function Stopping: Boolean;
   begin
@@ -934,15 +984,14 @@ var
 begin
   Require(InterlockedCompareExchange(Running, 1, 0) = 0, 'A Qwen run is already active.');
   Started := GetTickCount64;
-  Lease := nil;
+  State := nil;
   ModelInfo := nil;
   Passport := nil;
   ParamsInfo := nil;
-  Tokenizer := nil;
-  Model := Default(TQwenModel);
   EmbedTensor := nil;
   LogitsTensor := nil;
   SequenceAdded := False;
+  Succeeded := False;
   Result := Default(TQwenCudaResult);
   Result.GenerationOptions := Options;
   try
@@ -951,37 +1000,56 @@ begin
     Require((Trim(Prompt) <> '') and (Length(Prompt) <= 4096), 'Enter a short, nonempty prompt.');
     Bundle := DirectoryPath(BundleDirectory);
     Runtime := DirectoryPath(RuntimeDirectory);
-    Lease := TInputLease.Create;
-    Notify(Progress, 'Checking the selected model profile and parameter layout...');
-    ModelStream := Lease.Hold(Bundle + 'model.json');
-    ModelInfo := ReadObject(ModelStream);
-    Passport := ReadObject(Lease.Hold(Bundle + 'manifest.json'));
-    ParamsInfo := ReadObject(Lease.Hold(Bundle + 'params.json'));
-    IndexStream := Lease.Hold(Bundle + 'params.index');
-    Profile := CheckModel(ModelInfo, Passport);
-    Generic := BundleContextSize(Profile.ProfileID) <> QwenContextSize;
-    ParameterBytes := CheckParameters(ModelInfo, ParamsInfo, ReadText(IndexStream), Profile);
-    ParamsStream := Lease.Hold(Bundle + 'params.bin', ParameterBytes);
-    Result.ProfileID := Profile.ProfileID;
-    ModelArch := TextField(ModelInfo, 'arch');
-    Result.SourceRevision := Profile.SourceRevision;
-    Result.SourceTreeSHA256 := Profile.SourceTreeSHA256;
+    State := TQwenSessionState(FState);
+    Reused := Assigned(State) and SameText(State.Bundle, Bundle) and
+      SameText(State.Runtime, Runtime);
+    if Reused then
+    begin
+      Notify(Progress, 'Reusing the verified model already loaded on CUDA.');
+      Profile := State.Profile;
+      Result := State.Info;
+    end
+    else begin
+      FreeAndNil(FState);
+      State := TQwenSessionState.Create;
+      FState := State;
+      State.Bundle := Bundle;
+      State.Runtime := Runtime;
+      State.Lease := TInputLease.Create;
+      Notify(Progress, 'Checking the selected model profile and parameter layout...');
+      ModelStream := State.Lease.Hold(Bundle + 'model.json');
+      ModelInfo := ReadObject(ModelStream);
+      Passport := ReadObject(State.Lease.Hold(Bundle + 'manifest.json'));
+      ParamsInfo := ReadObject(State.Lease.Hold(Bundle + 'params.json'));
+      IndexStream := State.Lease.Hold(Bundle + 'params.index');
+      Profile := CheckModel(ModelInfo, Passport);
+      State.Profile := Profile;
+      Generic := BundleContextSize(Profile.ProfileID) <> QwenContextSize;
+      ParameterBytes := CheckParameters(ModelInfo, ParamsInfo, ReadText(IndexStream), Profile);
+      ParamsStream := State.Lease.Hold(Bundle + 'params.bin', ParameterBytes);
+      Result.ProfileID := Profile.ProfileID;
+      ModelArch := TextField(ModelInfo, 'arch');
+      Result.SourceRevision := Profile.SourceRevision;
+      Result.SourceTreeSHA256 := Profile.SourceTreeSHA256;
+      Result.ModelMetadataSHA256 := StreamSHA256(ModelStream);
+      Result.ModelSHA256 := TextField(ObjectField(Passport, 'artifact'), 'hash');
+      State.Lease.Hold(Bundle + 'qwen2-cuda.dll', -1, Result.ModelSHA256);
+      for I := 0 to High(TokenizerNames) do
+        State.Lease.Hold(Bundle + TokenizerNames[I], TokenizerBytes[I], TokenizerSHA256[I]);
+      for I := 0 to High(RuntimeNames) do
+        State.Lease.Hold(Runtime + RuntimeNames[I], RuntimeBytes[I], RuntimeSHA256[I]);
+      State.Tokenizer := TQwenTokenizer.Create;
+      RequireCall(State.Tokenizer.Load(Bundle, @ErrorText), @ErrorText);
+      Require((State.Tokenizer.TokenCount = QwenBOS) and
+        (State.Tokenizer.SpecialId('<|im_end|>') = QwenEOS) and
+        (State.Tokenizer.SpecialId('<|endoftext|>') = QwenBOS), 'Unexpected tokenizer vocabulary.');
+    end;
+    Result.GenerationOptions := Options;
+    Result.ModelReused := Reused;
     Result.Prompt := Prompt;
-    Result.ModelMetadataSHA256 := StreamSHA256(ModelStream);
-    Result.ModelSHA256 := TextField(ObjectField(Passport, 'artifact'), 'hash');
-    Lease.Hold(Bundle + 'qwen2-cuda.dll', -1, Result.ModelSHA256);
-    for I := 0 to High(TokenizerNames) do
-      Lease.Hold(Bundle + TokenizerNames[I], TokenizerBytes[I], TokenizerSHA256[I]);
-    for I := 0 to High(RuntimeNames) do
-      Lease.Hold(Runtime + RuntimeNames[I], RuntimeBytes[I], RuntimeSHA256[I]);
-    Tokenizer := TQwenTokenizer.Create;
-    RequireCall(Tokenizer.Load(Bundle, @ErrorText), @ErrorText);
-    Require((Tokenizer.TokenCount = QwenBOS) and
-      (Tokenizer.SpecialId('<|im_end|>') = QwenEOS) and
-      (Tokenizer.SpecialId('<|endoftext|>') = QwenBOS), 'Unexpected tokenizer vocabulary.');
     ChatText := '<|im_start|>system'#10'You are a helpful assistant.<|im_end|>'#10 +
       '<|im_start|>user'#10 + Prompt + '<|im_end|>'#10'<|im_start|>assistant'#10;
-    Result.PromptTokenIDs := Tokenizer.Encode(ChatText);
+    Result.PromptTokenIDs := State.Tokenizer.Encode(ChatText);
     Result.ContextTokens := QwenDefaultContextSize;
     Result.AvailableNewTokens := Result.ContextTokens - Length(Result.PromptTokenIDs);
     Require(
@@ -1024,54 +1092,61 @@ begin
       for TokenID in Result.PromptTokenIDs do
         Seen[TokenID] := True;
     end;
-    Notify(Progress, 'Checking parameter SHA-256 before loading the model...');
-    CheckStop;
-    Result.ParametersSHA256 := StreamSHA256(ParamsStream);
-    Require(Result.ParametersSHA256 = TextField(ModelInfo, 'params_sha256'),
-      'Parameter SHA-256 differs from the converter output.');
-    CheckStop;
-    Notify(Progress, 'Loading the selected CUDA runtime and checking GPU 0...');
-    InitializeRuntime(Runtime);
-    Require(DeviceInteger(0) <> 0, 'CUDA device 0 is unavailable. No CPU fallback is enabled.');
-    Result.ComputeVersion := DeviceText(4);
-    Result.DeviceName := DeviceText(5);
-    Result.TotalDeviceBytes := DeviceInteger(14);
-    Result.FreeDeviceBytes := DeviceInteger(15);
-    DeviceArch := 'sm_' + StringReplace(Result.ComputeVersion, '.', '', []);
-    Require(
-      SameText(
-        ModelArch,
-        DeviceArch
-      ),
-      'The bundle targets ' + ModelArch + ', but CUDA device 0 reports ' + DeviceArch + '. Convert the model for this device in the showcase.'
-    );
-    WorkspaceBytes := Int64(256) * 1024 * 1024;
-    if Generic then
-      WorkspaceBytes := 2 * WorkspaceBytes;
-    CacheBytes := Int64(2) * Profile.LayerCount * Profile.KVHeads *
-      Profile.HeadSize * Result.ContextTokens * SizeOf(Single);
-    Require(Result.FreeDeviceBytes >= ParameterBytes + CacheBytes + WorkspaceBytes,
-      'Not enough free GPU memory for the parameters, context cache and workspace reserve.');
-    FillChar(Memory, SizeOf(Memory), 0);
-    Memory.dwLength := SizeOf(Memory);
-    Require(GlobalMemoryStatusEx(Memory), 'Cannot query available system memory.');
-    if Generic then
-      Require(Memory.ullAvailPhys >= UInt64(IntegerField(
-        ObjectField(ModelInfo, 'qwen_compatibility'), 'min_free_host_ram_bytes')),
-        'Insufficient free host RAM for the derived generic Qwen topology.')
-    else
-      Require(Memory.ullAvailPhys >= UInt64(1024) * 1024 * 1024,
-        'At least 1 GiB of free system memory is required before model loading.');
-    Notify(Progress, Format('Loading all %d layers on %s...', [Profile.LayerCount, Result.DeviceName]));
-    CheckStop;
-    RequireCall(Model.Load(Bundle, @ErrorText), @ErrorText);
-    CheckStop;
-    Require((Model.DeviceType = Ord(kDLCUDA)) and (Model.DataBits = 32) and
-      (Length(Model.Entries) = ArrayField(ModelInfo, 'param_order').Count),
-      'The loaded model is not the checked CUDA profile.');
-    RequireCall(Model.CreateCache(1, Result.ContextTokens, Result.ContextTokens, 16, @ErrorText),
-      @ErrorText);
-    RequireCall(Model.AddSequence(0, @ErrorText), @ErrorText);
+    if not Reused then
+    begin
+      Notify(Progress, 'Checking parameter SHA-256 before loading the model...');
+      CheckStop;
+      Result.ParametersSHA256 := StreamSHA256(ParamsStream);
+      Require(Result.ParametersSHA256 = TextField(ModelInfo, 'params_sha256'),
+        'Parameter SHA-256 differs from the converter output.');
+      CheckStop;
+      Notify(Progress, 'Loading the selected CUDA runtime and checking GPU 0...');
+      InitializeRuntime(Runtime);
+      Require(DeviceInteger(0) <> 0, 'CUDA device 0 is unavailable. No CPU fallback is enabled.');
+      Result.ComputeVersion := DeviceText(4);
+      Result.DeviceName := DeviceText(5);
+      Result.TotalDeviceBytes := DeviceInteger(14);
+      Result.FreeDeviceBytes := DeviceInteger(15);
+      DeviceArch := 'sm_' + StringReplace(Result.ComputeVersion, '.', '', []);
+      Require(
+        SameText(
+          ModelArch,
+          DeviceArch
+        ),
+        'The bundle targets ' + ModelArch + ', but CUDA device 0 reports ' + DeviceArch + '. Convert the model for this device in the showcase.'
+      );
+      WorkspaceBytes := Int64(256) * 1024 * 1024;
+      if Generic then
+        WorkspaceBytes := 2 * WorkspaceBytes;
+      CacheBytes := Int64(2) * Profile.LayerCount * Profile.KVHeads *
+        Profile.HeadSize * Result.ContextTokens * SizeOf(Single);
+      Require(Result.FreeDeviceBytes >= ParameterBytes + CacheBytes + WorkspaceBytes,
+        'Not enough free GPU memory for the parameters, context cache and workspace reserve.');
+      FillChar(Memory, SizeOf(Memory), 0);
+      Memory.dwLength := SizeOf(Memory);
+      Require(GlobalMemoryStatusEx(Memory), 'Cannot query available system memory.');
+      if Generic then
+        Require(Memory.ullAvailPhys >= UInt64(IntegerField(
+          ObjectField(ModelInfo, 'qwen_compatibility'), 'min_free_host_ram_bytes')),
+          'Insufficient free host RAM for the derived generic Qwen topology.')
+      else
+        Require(Memory.ullAvailPhys >= UInt64(1024) * 1024 * 1024,
+          'At least 1 GiB of free system memory is required before model loading.');
+      Notify(Progress, Format('Loading all %d layers on %s...', [Profile.LayerCount, Result.DeviceName]));
+      CheckStop;
+      RequireCall(State.Model.Load(Bundle, @ErrorText), @ErrorText);
+      CheckStop;
+      Require((State.Model.DeviceType = Ord(kDLCUDA)) and (State.Model.DataBits = 32) and
+        (Length(State.Model.Entries) = ArrayField(ModelInfo, 'param_order').Count),
+        'The loaded model is not the checked CUDA profile.');
+      RequireCall(State.Model.CreateCache(1, Result.ContextTokens, Result.ContextTokens, 16, @ErrorText), @ErrorText);
+      State.Info := Result;
+      State.Info.Prompt := '';
+      State.Info.PromptTokenIDs := nil;
+      State.Info.Sampled := False;
+      State.Info.SamplingSeed := 0;
+    end;
+    RequireCall(State.Model.AddSequence(0, @ErrorText), @ErrorText);
     SequenceAdded := True;
     StepTokens := Copy(Result.PromptTokenIDs);
     for Step := 0 to GenerationLimit - 1 do
@@ -1084,14 +1159,14 @@ begin
         Break;
       end;
       try
-        RequireCall(Model.Embed(StepTokens, EmbedTensor, @ErrorText), @ErrorText);
+        RequireCall(State.Model.Embed(StepTokens, EmbedTensor, @ErrorText), @ErrorText);
         CheckTensor(EmbedTensor, [1, Length(StepTokens), Profile.HiddenSize]);
         if Step = 0 then
-          RequireCall(Model.Run('prefill', EmbedTensor, 0, Length(StepTokens), LogitsTensor, @ErrorText), @ErrorText)
+          RequireCall(State.Model.Run('prefill', EmbedTensor, 0, Length(StepTokens), LogitsTensor, @ErrorText), @ErrorText)
         else
-          RequireCall(Model.Run('decode', EmbedTensor, 0, 1, LogitsTensor, @ErrorText), @ErrorText);
+          RequireCall(State.Model.Run('decode', EmbedTensor, 0, 1, LogitsTensor, @ErrorText), @ErrorText);
         CheckTensor(LogitsTensor, [1, 1, QwenVocabSize]);
-        RequireCall(Model.ReadFloats(LogitsTensor, Values, @ErrorText), @ErrorText);
+        RequireCall(State.Model.ReadFloats(LogitsTensor, Values, @ErrorText), @ErrorText);
         Require(Length(Values) = QwenVocabSize, 'Unexpected number of output logits.');
         for I := 0 to High(Values) do
           Require(not IsNan(Values[I]) and not IsInfinite(Values[I]), 'The model returned nonfinite logits.');
@@ -1109,6 +1184,8 @@ begin
           Result.StopReason := 'eos';
           Break;
         end;
+        if Assigned(TextUpdated) then
+          TextUpdated(State.Tokenizer.DecodePrefix(Result.GeneratedTokenIDs));
         StepTokens := TArray<Integer>.Create(TokenID);
       finally
         TTVMRuntime.ObjectRelease(LogitsTensor);
@@ -1119,23 +1196,26 @@ begin
     if (Length(StepTokens) > 0) and
       ((StepTokens[High(StepTokens)] = QwenEOS) or (StepTokens[High(StepTokens)] = QwenBOS)) then
         SetLength(StepTokens, Length(StepTokens) - 1);
-    Result.Answer := Tokenizer.Decode(StepTokens);
-    RequireCall(Model.RemoveSequence(0, @ErrorText), @ErrorText);
+    Result.Answer := State.Tokenizer.Decode(StepTokens);
+    RequireCall(State.Model.RemoveSequence(0, @ErrorText), @ErrorText);
     SequenceAdded := False;
     Result.ElapsedMilliseconds := GetTickCount64 - Started;
-    Notify(Progress, 'Generation finished; releasing model and cache objects...');
+    Notify(Progress, 'Generation finished.');
+    Succeeded := True;
   finally
     TTVMRuntime.ObjectRelease(LogitsTensor);
     TTVMRuntime.ObjectRelease(EmbedTensor);
     if SequenceAdded then
-      Model.RemoveSequence(0, @ErrorText);
-    Model.Unload;
-    Tokenizer.Free;
+      State.Model.RemoveSequence(0, @ErrorText);
     ParamsInfo.Free;
     Passport.Free;
     ModelInfo.Free;
-    Lease.Free;
-    InterlockedExchange(Running, 0);
+    try
+      if not Succeeded then
+        FreeAndNil(FState);
+    finally
+      InterlockedExchange(Running, 0);
+    end;
   end;
 end;
 
@@ -1168,6 +1248,7 @@ begin
     Obj.AddPair('prompt', Value.Prompt);
     Obj.AddPair('context_tokens', JSONInteger(Value.ContextTokens));
     Obj.AddPair('available_new_tokens', JSONInteger(Value.AvailableNewTokens));
+    Obj.AddPair('model_reused', JSONBoolean(Value.ModelReused));
     Generation := TJSONObject.Create;
     Obj.AddPair('generation', Generation);
     Generation.AddPair('max_new_tokens', JSONInteger(Value.GenerationOptions.MaxNewTokens));
