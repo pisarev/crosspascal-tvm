@@ -32,15 +32,19 @@ const
   QwenSourceTreeSHA256 = '90361a89884fd025cac6718a75d8ede78d2e259d2be5bef2e33d78f08f8585b1';
   QwenParameterBytes: Int64 = 1976131072;
   QwenContextSize = 64;
-  QwenDefaultMaxNewTokens = 6;
+  QwenDefaultContextSize = 2048;
+  QwenDefaultMaxNewTokens = 0;
 
 type
   EQwenCuda = class(Exception);
+  EQwenCudaCancelled = class(EQwenCuda);
   TQwenProgress = {$IFDEF FPC}procedure(const MessageText: string) of object{$ELSE}reference to procedure(const MessageText: string){$ENDIF};
+  TQwenStopRequested = function: Boolean of object;
 
   TQwenCudaResult = record
     ProfileID: string;
     SourceRevision: string;
+    SourceTreeSHA256: string;
     DeviceName: string;
     ComputeVersion: string;
     FreeDeviceBytes: Int64;
@@ -51,13 +55,16 @@ type
     Prompt: string;
     PromptTokenIDs: TArray<Integer>;
     GeneratedTokenIDs: TArray<Integer>;
+    ContextTokens: Integer;
+    AvailableNewTokens: Integer;
     Answer: string;
     StopReason: string;
     ElapsedMilliseconds: UInt64;
   end;
 
 function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
-  const MaxNewTokens: Integer; const Progress: TQwenProgress = nil): TQwenCudaResult;
+  const MaxNewTokens: Int64; const Progress: TQwenProgress = nil;
+  const StopRequested: TQwenStopRequested = nil): TQwenCudaResult;
 function QwenResultJSON(const Value: TQwenCudaResult): string;
 
 implementation
@@ -135,6 +142,12 @@ const
     '154f80686ba52e8dc9647bd274284fb59fc6c0530ec699c80e0d06e5859291f4');
   DLLSearchFlags = $00000100 or $00001000;
   MaxMetadataBytes = 1024 * 1024;
+  QwenGenericProfileID1024 = 'qwen2-compatible-cuda-f32-1024-v1';
+  QwenGenericProfileID = 'qwen2-compatible-cuda-f32-2048-v1';
+  QwenGenericModelKey = 'qwen2-compatible-local';
+  QwenGenericSchema = 'crosspascal.qwen2-compatible.v1';
+  QwenGenericTokenizerSHA256 = 'c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539';
+  GenericMaxPackedBytes: Int64 = Int64(12) * 1024 * 1024 * 1024;
 
 var
   Running: LongInt;
@@ -334,6 +347,39 @@ begin
   Result := IntegerValue(Field(Obj, Name), Name);
 end;
 
+function BoundedInteger(const Obj: TJSONObject; const Name: string;
+  const Minimum, Maximum: Int64): Integer;
+var
+  Measured: Int64;
+begin
+  Measured := IntegerField(Obj, Name);
+  Require((Measured >= Minimum) and (Measured <= Maximum),
+    'Unsupported generic Qwen dimension: ' + Name);
+  Result := Integer(Measured);
+end;
+
+function BooleanField(const Obj: TJSONObject; const Name: string): Boolean;
+var
+  Value: TJSONValue;
+begin
+  Value := Field(Obj, Name);
+  Require(JSONIsBoolean(Value), 'Expected JSON boolean: ' + Name);
+  Result := JSONIsTrue(Value);
+end;
+
+function FiniteRangeField(const Obj: TJSONObject; const Name: string;
+  const Minimum, Maximum: Double): Double;
+var
+  Value: TJSONValue;
+begin
+  Value := Field(Obj, Name);
+  Require((Value is TJSONNumber) and
+    TryStrToFloat(JSONValueText(Value), Result, JSONInvariantFormat) and
+    not IsNan(Result) and not IsInfinite(Result) and
+    (Result >= Minimum) and (Result <= Maximum),
+    'Unsupported generic Qwen numeric field: ' + Name);
+end;
+
 function ObjectField(const Obj: TJSONObject; const Name: string): TJSONObject;
 var
   Value: TJSONValue;
@@ -362,6 +408,15 @@ begin
   Require(IntegerField(Obj, Name) = Expected, 'Unsupported bundle field: ' + Name);
 end;
 
+function BundleContextSize(const ProfileID: string): Integer;
+begin
+  if ProfileID = QwenGenericProfileID then
+    Exit(QwenDefaultContextSize);
+  if ProfileID = QwenGenericProfileID1024 then
+    Exit(1024);
+  Result := QwenContextSize;
+end;
+
 function CheckParameters(const Model, Params: TJSONObject; const IndexText: string;
   const Profile: TQwenCudaProfile): Int64;
 var
@@ -370,7 +425,8 @@ var
   Tensor: TJSONObject;
   Words: TQwenWords;
   Row, Layer, TensorCount, AttentionWidth: Integer;
-  Offset: Int64;
+  Offset, LargestTensor, CacheBytes, GPUBytes, HostBytes: Int64;
+  Generic: Boolean;
 
   procedure Expect(const Name: string; const Dims: array of Int64);
   var
@@ -379,7 +435,11 @@ var
   begin
     NBytes := SizeOf(Single);
     for D := 0 to High(Dims) do
+    begin
+      Require((Dims[D] > 0) and (NBytes <= High(Int64) div Dims[D]),
+        'Qwen tensor byte size overflow: ' + Name);
       NBytes := NBytes * Dims[D];
+    end;
     Require(Row < Order.Count, 'Parameter count is too small.');
     Require((Order.Items[Row] is TJSONString) and (JSONValueText(Order.Items[Row]) = Name),
       'Parameter order mismatch: ' + Name);
@@ -400,16 +460,22 @@ var
       'Parameter index mismatch: ' + Name);
     for D := 0 to High(Dims) do
       Require(Words[4 + D] = IntToStr(Dims[D]), 'Parameter index shape mismatch: ' + Name);
+    Require(Offset <= High(Int64) - NBytes, 'Qwen parameter offsets overflow');
     Inc(Offset, NBytes);
+    if NBytes > LargestTensor then
+      LargestTensor := NBytes;
     Inc(Row);
   end;
 
 begin
+  Generic := BundleContextSize(Profile.ProfileID) <> QwenContextSize;
   MatchText(Params, 'dtype', 'float32');
   MatchText(Params, 'sha256', TextField(Model, 'params_sha256'));
   Order := ArrayField(Model, 'param_order');
   Tensors := ArrayField(Params, 'tensors');
   TensorCount := Profile.LayerCount * 7 + 2;
+  if Generic and not BooleanField(Model, 'tie_word_embeddings') then
+    Inc(TensorCount);
   AttentionWidth := (Profile.AttentionHeads + 2 * Profile.KVHeads) * Profile.HeadSize;
   Require((Order.Count = TensorCount) and (Tensors.Count = TensorCount),
     'The parameter tensor count differs from the selected Qwen profile.');
@@ -423,6 +489,7 @@ begin
       (Words[1] = 'float32') and (Words[2] = 'cuda'), 'The parameters must be float32 CUDA.');
     Row := 0;
     Offset := 0;
+    LargestTensor := 0;
     Expect('model.embed_tokens.weight', [QwenVocabSize, Profile.HiddenSize]);
     for Layer := 0 to Profile.LayerCount - 1 do
     begin
@@ -439,9 +506,30 @@ begin
       Expect(Format('model.layers.%d.post_attention_layernorm.weight', [Layer]), [Profile.HiddenSize]);
     end;
     Expect('model.norm.weight', [Profile.HiddenSize]);
+    if Generic and not BooleanField(Model, 'tie_word_embeddings') then
+      Expect('lm_head.weight', [QwenVocabSize, Profile.HiddenSize]);
     Require(Row = TensorCount, 'Unexpected parameter layout.');
     MatchInteger(Params, 'total_bytes', Offset);
     MatchInteger(Model, 'params_bytes', Offset);
+    if Generic then
+    begin
+      Require(Offset <= GenericMaxPackedBytes,
+        'Generic Qwen FP32 parameters exceed the 12 GiB contract');
+      MatchInteger(ObjectField(Model, 'qwen_compatibility'), 'packed_parameter_bytes', Offset);
+      MatchInteger(ObjectField(Model, 'qwen_compatibility'), 'tensor_count', TensorCount);
+      CacheBytes := Int64(2) * Profile.LayerCount * Profile.KVHeads *
+        Profile.HeadSize * BundleContextSize(Profile.ProfileID) * SizeOf(Single);
+      GPUBytes := Offset + CacheBytes + Int64(512) * 1024 * 1024;
+      HostBytes := Int64(3) * LargestTensor + Int64(1024) * 1024 * 1024;
+      if HostBytes < Int64(2048) * 1024 * 1024 then
+        HostBytes := Int64(2048) * 1024 * 1024;
+      MatchInteger(ObjectField(Model, 'qwen_compatibility'), 'kv_cache_bytes', CacheBytes);
+      MatchInteger(ObjectField(Model, 'qwen_compatibility'), 'min_free_gpu_bytes', GPUBytes);
+      MatchInteger(ObjectField(Model, 'qwen_compatibility'), 'min_free_host_ram_bytes', HostBytes);
+      MatchInteger(ObjectField(Model, 'qwen_compatibility'),
+        'min_free_output_disk_bytes',
+        Int64(2) * Offset + Int64(512) * 1024 * 1024);
+    end;
     Result := Offset;
   finally
     Lines.Free;
@@ -450,13 +538,16 @@ end;
 
 function CheckModel(const Model, Passport: TJSONObject): TQwenCudaProfile;
 var
-  Artifact, TextInfo, TokenizerInfo: TJSONObject;
-  Number: Double;
+  Artifact, TextInfo, TokenizerInfo, Descriptor: TJSONObject;
+  Number, NormEpsilon: Double;
   NumberValue: TJSONValue;
   ProfileID: string;
-  ProfileIndex: Integer;
+  ProfileIndex, ExpectedContext: Integer;
+  Generic: Boolean;
 begin
   ProfileID := TextField(Model, 'llm_profile_id');
+  ExpectedContext := BundleContextSize(ProfileID);
+  Generic := ExpectedContext <> QwenContextSize;
   ProfileIndex := Low(QwenProfiles);
   while ProfileIndex <= High(QwenProfiles) do
   begin
@@ -464,8 +555,55 @@ begin
       Break;
     Inc(ProfileIndex);
   end;
-  Require(ProfileIndex <= High(QwenProfiles), 'Unsupported Qwen profile: ' + ProfileID);
-  Result := QwenProfiles[ProfileIndex];
+  Require(Generic or (ProfileIndex <= High(QwenProfiles)),
+    'Unsupported Qwen profile: ' + ProfileID);
+  if Generic then
+  begin
+    Result := Default(TQwenCudaProfile);
+    Result.ModelKey := QwenGenericModelKey;
+    Result.ProfileID := ProfileID;
+    Descriptor := ObjectField(Model, 'qwen_compatibility');
+    MatchText(Descriptor, 'schema', QwenGenericSchema);
+    MatchText(Descriptor, 'model_key', QwenGenericModelKey);
+    MatchText(Descriptor, 'source_kind', 'local-sha256');
+    MatchText(Descriptor, 'operator_contract', 'dense-silu-gqa-rope-normal-v1');
+    MatchText(Descriptor, 'tokenizer_contract', 'qwen2-byte-bpe-im-v1');
+    MatchText(Descriptor, 'tokenizer_sha256', QwenGenericTokenizerSHA256);
+    MatchText(Model, 'source_kind', 'local-sha256');
+    Require(not Assigned(Model.GetValue('source_repo')) and
+      not Assigned(Model.GetValue('source_revision')),
+      'Local Qwen source must not claim an official curated revision.');
+    Result.SourceTreeSHA256 := TextField(Model, 'source_tree_sha256');
+    Require(IsSHA256(Result.SourceTreeSHA256),
+      'Local Qwen source tree requires full lowercase SHA-256.');
+    MatchText(Descriptor, 'source_tree_sha256', Result.SourceTreeSHA256);
+    Result.HiddenSize := BoundedInteger(Descriptor, 'hidden_size', 128, 8192);
+    Result.IntermediateSize := BoundedInteger(Descriptor, 'intermediate_size', 128, 32768);
+    Result.LayerCount := BoundedInteger(Descriptor, 'num_hidden_layers', 1, 80);
+    Result.AttentionHeads := BoundedInteger(Descriptor, 'num_attention_heads', 1, 128);
+    Result.KVHeads := BoundedInteger(Descriptor, 'num_key_value_heads', 1, 128);
+    Result.HeadSize := BoundedInteger(Descriptor, 'head_dim', 32, 256);
+    Require((Result.HeadSize mod 2 = 0) and
+      (Result.AttentionHeads mod Result.KVHeads = 0) and
+      (Int64(Result.AttentionHeads) * Result.HeadSize = Result.HiddenSize),
+      'Generic Qwen grouping or RoPE head dimension is unsupported.');
+    MatchInteger(Descriptor, 'vocab_size', QwenVocabSize);
+    MatchInteger(Descriptor, 'bos_token_id', QwenBOS);
+    MatchInteger(Descriptor, 'eos_token_id', QwenEOS);
+    MatchInteger(Descriptor, 'context_window_size', ExpectedContext);
+    MatchInteger(Descriptor, 'prefill_chunk_size', ExpectedContext);
+    MatchInteger(Descriptor, 'max_batch_size', 1);
+    Require(BooleanField(Model, 'tie_word_embeddings') = BooleanField(Descriptor, 'tie_word_embeddings'),
+      'Generic Qwen tied/untied descriptor differs from model.');
+    Number := FiniteRangeField(Descriptor, 'rope_theta', 1000.0, 1000000000.0);
+    Require(FiniteRangeField(Model, 'rope_theta', 1000.0, 1000000000.0) = Number,
+      'Generic Qwen RoPE descriptor differs from model.');
+    NormEpsilon := FiniteRangeField(Descriptor, 'rms_norm_eps', 1.0e-9, 1.0e-3);
+    Require(FiniteRangeField(Model, 'rms_norm_eps', 1.0e-9, 1.0e-3) = NormEpsilon,
+      'Generic Qwen RMSNorm descriptor differs from model.');
+  end
+  else
+    Result := QwenProfiles[ProfileIndex];
   MatchText(Model, 'model_key', Result.ModelKey);
   MatchText(Model, 'library', 'qwen2-cuda.dll');
   MatchText(Model, 'target', 'cuda');
@@ -473,17 +611,21 @@ begin
   MatchText(Model, 'dtype', 'float32');
   MatchText(Model, 'build_host_cpu_arch', 'x86_64');
   MatchText(Model, 'tokenizer', 'byte_bpe');
-  MatchText(Model, 'source_repo', Result.SourceRepository);
-  MatchText(Model, 'source_revision', Result.SourceRevision);
-  MatchText(Model, 'source_tree_sha256', Result.SourceTreeSHA256);
+  if not Generic then
+  begin
+    MatchText(Model, 'source_repo', Result.SourceRepository);
+    MatchText(Model, 'source_revision', Result.SourceRevision);
+    MatchText(Model, 'source_tree_sha256', Result.SourceTreeSHA256);
+  end;
   Require(IsSHA256(TextField(Model, 'build_plan_sha256')), 'Invalid BuildPlan SHA-256.');
   Require(IsSHA256(TextField(Model, 'params_sha256')), 'Invalid parameter SHA-256.');
-  MatchInteger(Model, 'context_window_size', QwenContextSize);
-  MatchInteger(Model, 'prefill_chunk_size', QwenContextSize);
+  MatchInteger(Model, 'context_window_size', ExpectedContext);
+  MatchInteger(Model, 'prefill_chunk_size', ExpectedContext);
   MatchInteger(Model, 'max_batch_size', 1);
   MatchInteger(Model, 'hidden_size', Result.HiddenSize);
-  if (ProfileIndex <> Low(QwenProfiles)) or Assigned(Model.GetValue('intermediate_size')) then
-    MatchInteger(Model, 'intermediate_size', Result.IntermediateSize);
+  if Generic or (ProfileIndex <> Low(QwenProfiles)) or
+    Assigned(Model.GetValue('intermediate_size')) then
+      MatchInteger(Model, 'intermediate_size', Result.IntermediateSize);
   MatchInteger(Model, 'num_hidden_layers', Result.LayerCount);
   MatchInteger(Model, 'num_attention_heads', Result.AttentionHeads);
   MatchInteger(Model, 'num_key_value_heads', Result.KVHeads);
@@ -491,11 +633,14 @@ begin
   MatchInteger(Model, 'vocab_size', QwenVocabSize);
   MatchInteger(Model, 'bos_token_id', QwenBOS);
   MatchInteger(Model, 'eos_token_id', QwenEOS);
-  Require(JSONIsTrue(Field(Model, 'tie_word_embeddings')), 'Tied embeddings are required.');
-  NumberValue := Field(Model, 'rope_theta');
-  Require((NumberValue is TJSONNumber) and
-    TryStrToFloat(JSONValueText(NumberValue), Number, JSONInvariantFormat) and
-    (Number = 1000000.0), 'Unexpected RoPE theta.');
+  if not Generic then
+  begin
+    Require(JSONIsTrue(Field(Model, 'tie_word_embeddings')), 'Tied embeddings are required.');
+    NumberValue := Field(Model, 'rope_theta');
+    Require((NumberValue is TJSONNumber) and
+      TryStrToFloat(JSONValueText(NumberValue), Number, JSONInvariantFormat) and
+      (Number = 1000000.0), 'Unexpected RoPE theta.');
+  end;
   MatchText(Passport, 'task_kind', 'text_generation');
   MatchText(Passport, 'adapter', 'qwen2');
   Artifact := ObjectField(Passport, 'artifact');
@@ -508,7 +653,7 @@ begin
   MatchText(Artifact, 'format', 'dll');
   Require(IsSHA256(TextField(Artifact, 'hash')), 'Invalid model-library SHA-256.');
   TextInfo := ObjectField(Passport, 'text');
-  MatchInteger(TextInfo, 'context_window', QwenContextSize);
+  MatchInteger(TextInfo, 'context_window', ExpectedContext);
   MatchInteger(TextInfo, 'bos', QwenBOS);
   MatchInteger(TextInfo, 'eos', QwenEOS);
   TokenizerInfo := ObjectField(Passport, 'tokenizer');
@@ -632,8 +777,70 @@ begin
     Require(Tensor.shape[I] = Shape[I], 'Unexpected CUDA tensor shape.');
 end;
 
+function SampleAutoToken(const Logits: TArray<Single>; const Seen: TArray<Boolean>;
+  var State: Cardinal): Integer;
+const
+  TopK = 20;
+  TopP = 0.8;
+  Temperature = 0.7;
+  RepetitionPenalty = 1.1;
+var
+  Scores, Weights: array[0..TopK - 1] of Double;
+  Tokens: array[0..TopK - 1] of Integer;
+  I, J, Count, Kept: Integer;
+  Score, Total, Mass, Draw: Double;
+begin
+  Count := 0;
+  for I := 0 to High(Logits) do
+  begin
+    Score := Logits[I];
+    if Seen[I] then
+    begin
+      if Score < 0 then
+        Score := Score * RepetitionPenalty
+      else
+        Score := Score / RepetitionPenalty;
+    end;
+    if (Count = TopK) and (Score <= Scores[TopK - 1]) then
+      Continue;
+    if Count < TopK then
+      Inc(Count);
+    J := Count - 1;
+    while (J > 0) and (Score > Scores[J - 1]) do
+    begin
+      Scores[J] := Scores[J - 1];
+      Tokens[J] := Tokens[J - 1];
+      Dec(J);
+    end;
+    Scores[J] := Score;
+    Tokens[J] := I;
+  end;
+  Total := 0;
+  for I := 0 to Count - 1 do
+  begin
+    Weights[I] := Exp((Scores[I] - Scores[0]) / Temperature);
+    Total := Total + Weights[I];
+  end;
+  Mass := 0;
+  Kept := 0;
+  repeat
+    Mass := Mass + Weights[Kept];
+    Inc(Kept);
+  until (Kept = Count) or (Mass >= TopP * Total);
+  State := Cardinal((UInt64(State) * 1664525 + 1013904223) and $FFFFFFFF);
+  Draw := (State / 4294967296.0) * Mass;
+  for I := 0 to Kept - 1 do
+  begin
+    Draw := Draw - Weights[I];
+    if Draw < 0 then
+      Exit(Tokens[I]);
+  end;
+  Result := Tokens[Kept - 1];
+end;
+
 function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
-  const MaxNewTokens: Integer; const Progress: TQwenProgress): TQwenCudaResult;
+  const MaxNewTokens: Int64; const Progress: TQwenProgress;
+  const StopRequested: TQwenStopRequested): TQwenCudaResult;
 var
   Bundle, Runtime, ChatText, ModelArch, DeviceArch: string;
   ErrorText: {$IFDEF FPC}AnsiString{$ELSE}string{$ENDIF};
@@ -641,16 +848,30 @@ var
   ModelInfo, Passport, ParamsInfo: TJSONObject;
   ModelStream, IndexStream, ParamsStream: TFileStream;
   Profile: TQwenCudaProfile;
-  ParameterBytes: Int64;
+  ParameterBytes, CacheBytes, WorkspaceBytes: Int64;
   Tokenizer: TQwenTokenizer;
   Model: TQwenModel;
   EmbedTensor, LogitsTensor: TTVMFFIObjectHandle;
   Values: TArray<Single>;
   StepTokens: TArray<Integer>;
-  I, Step, TokenID: Integer;
+  Seen: TArray<Boolean>;
+  I, Step, TokenID, GenerationLimit: Integer;
+  SampleState: Cardinal;
   Started: UInt64;
   Memory: TMemoryStatusEx;
-  SequenceAdded: Boolean;
+  SequenceAdded, Generic: Boolean;
+
+  function Stopping: Boolean;
+  begin
+    Result := Assigned(StopRequested) and StopRequested();
+  end;
+
+  procedure CheckStop;
+  begin
+    if Stopping then
+      raise EQwenCudaCancelled.Create('Stopped before generation.');
+  end;
+
 begin
   Require(InterlockedCompareExchange(Running, 1, 0) = 0, 'A Qwen run is already active.');
   Started := GetTickCount64;
@@ -665,7 +886,8 @@ begin
   SequenceAdded := False;
   Result := Default(TQwenCudaResult);
   try
-    Require((MaxNewTokens >= 1) and (MaxNewTokens <= 16), 'Max new tokens must be between 1 and 16.');
+    CheckStop;
+    Require(MaxNewTokens >= 0, 'Max new tokens must be 0 (Auto) or a positive whole number.');
     Require((Trim(Prompt) <> '') and (Length(Prompt) <= 4096), 'Enter a short, nonempty prompt.');
     Bundle := DirectoryPath(BundleDirectory);
     Runtime := DirectoryPath(RuntimeDirectory);
@@ -677,11 +899,13 @@ begin
     ParamsInfo := ReadObject(Lease.Hold(Bundle + 'params.json'));
     IndexStream := Lease.Hold(Bundle + 'params.index');
     Profile := CheckModel(ModelInfo, Passport);
+    Generic := BundleContextSize(Profile.ProfileID) <> QwenContextSize;
     ParameterBytes := CheckParameters(ModelInfo, ParamsInfo, ReadText(IndexStream), Profile);
     ParamsStream := Lease.Hold(Bundle + 'params.bin', ParameterBytes);
     Result.ProfileID := Profile.ProfileID;
     ModelArch := TextField(ModelInfo, 'arch');
     Result.SourceRevision := Profile.SourceRevision;
+    Result.SourceTreeSHA256 := Profile.SourceTreeSHA256;
     Result.Prompt := Prompt;
     Result.ModelMetadataSHA256 := StreamSHA256(ModelStream);
     Result.ModelSHA256 := TextField(ObjectField(Passport, 'artifact'), 'hash');
@@ -698,17 +922,42 @@ begin
     ChatText := '<|im_start|>system'#10'You are a helpful assistant.<|im_end|>'#10 +
       '<|im_start|>user'#10 + Prompt + '<|im_end|>'#10'<|im_start|>assistant'#10;
     Result.PromptTokenIDs := Tokenizer.Encode(ChatText);
-    Require((Length(Result.PromptTokenIDs) > 0) and
-      (Length(Result.PromptTokenIDs) + MaxNewTokens <= QwenContextSize),
-      Format('The chat template uses %d tokens; prompt plus generation must fit in 64.',
-        [Length(Result.PromptTokenIDs)]));
+    Result.ContextTokens := QwenDefaultContextSize;
+    Result.AvailableNewTokens := Result.ContextTokens - Length(Result.PromptTokenIDs);
+    Require(
+      (Length(Result.PromptTokenIDs) > 0) and (Result.AvailableNewTokens > 0),
+      Format(
+        'The prompt uses %d tokens with the template. It must leave room in the %d-token context.',
+        [
+          Length(Result.PromptTokenIDs),
+          Result.ContextTokens
+        ]
+      )
+    );
+    GenerationLimit := Result.AvailableNewTokens;
+    Result.StopReason := 'context_limit';
+    if (MaxNewTokens > 0) and (MaxNewTokens < GenerationLimit) then
+    begin
+      GenerationLimit := Integer(MaxNewTokens);
+      Result.StopReason := 'max_new_tokens';
+    end;
+    CheckStop;
     for TokenID in Result.PromptTokenIDs do
       Require((TokenID >= 0) and (TokenID < QwenVocabSize),
         'A prompt token is outside the model vocabulary.');
+    if MaxNewTokens = 0 then
+    begin
+      SampleState := Cardinal(GetTickCount64 and $FFFFFFFF);
+      SetLength(Seen, QwenVocabSize);
+      for TokenID in Result.PromptTokenIDs do
+        Seen[TokenID] := True;
+    end;
     Notify(Progress, 'Checking parameter SHA-256 before loading the model...');
+    CheckStop;
     Result.ParametersSHA256 := StreamSHA256(ParamsStream);
     Require(Result.ParametersSHA256 = TextField(ModelInfo, 'params_sha256'),
       'Parameter SHA-256 differs from the converter output.');
+    CheckStop;
     Notify(Progress, 'Loading the selected CUDA runtime and checking GPU 0...');
     InitializeRuntime(Runtime);
     Require(DeviceInteger(0) <> 0, 'CUDA device 0 is unavailable. No CPU fallback is enabled.');
@@ -724,26 +973,44 @@ begin
       ),
       'The bundle targets ' + ModelArch + ', but CUDA device 0 reports ' + DeviceArch + '. Convert the model for this device in the showcase.'
     );
-    Require(Result.FreeDeviceBytes >= ParameterBytes + Int64(256) * 1024 * 1024,
-      'Not enough free GPU memory for the parameters and minimum workspace reserve.');
+    WorkspaceBytes := Int64(256) * 1024 * 1024;
+    if Generic then
+      WorkspaceBytes := 2 * WorkspaceBytes;
+    CacheBytes := Int64(2) * Profile.LayerCount * Profile.KVHeads *
+      Profile.HeadSize * Result.ContextTokens * SizeOf(Single);
+    Require(Result.FreeDeviceBytes >= ParameterBytes + CacheBytes + WorkspaceBytes,
+      'Not enough free GPU memory for the parameters, context cache and workspace reserve.');
     FillChar(Memory, SizeOf(Memory), 0);
     Memory.dwLength := SizeOf(Memory);
     Require(GlobalMemoryStatusEx(Memory), 'Cannot query available system memory.');
-    Require(Memory.ullAvailPhys >= UInt64(1024) * 1024 * 1024,
-      'At least 1 GiB of free system memory is required before model loading.');
+    if Generic then
+      Require(Memory.ullAvailPhys >= UInt64(IntegerField(
+        ObjectField(ModelInfo, 'qwen_compatibility'), 'min_free_host_ram_bytes')),
+        'Insufficient free host RAM for the derived generic Qwen topology.')
+    else
+      Require(Memory.ullAvailPhys >= UInt64(1024) * 1024 * 1024,
+        'At least 1 GiB of free system memory is required before model loading.');
     Notify(Progress, Format('Loading all %d layers on %s...', [Profile.LayerCount, Result.DeviceName]));
+    CheckStop;
     RequireCall(Model.Load(Bundle, @ErrorText), @ErrorText);
+    CheckStop;
     Require((Model.DeviceType = Ord(kDLCUDA)) and (Model.DataBits = 32) and
       (Length(Model.Entries) = ArrayField(ModelInfo, 'param_order').Count),
       'The loaded model is not the checked CUDA profile.');
-    RequireCall(Model.CreateCache(1, QwenContextSize, QwenContextSize, 16, @ErrorText), @ErrorText);
+    RequireCall(Model.CreateCache(1, Result.ContextTokens, Result.ContextTokens, 16, @ErrorText),
+      @ErrorText);
     RequireCall(Model.AddSequence(0, @ErrorText), @ErrorText);
     SequenceAdded := True;
     StepTokens := Copy(Result.PromptTokenIDs);
-    Result.StopReason := 'max_new_tokens';
-    for Step := 0 to MaxNewTokens - 1 do
+    for Step := 0 to GenerationLimit - 1 do
     begin
-      Notify(Progress, Format('Generating token %d of %d on CUDA...', [Step + 1, MaxNewTokens]));
+      Notify(Progress, Format('Generating token %d of %d on CUDA (%d available after the prompt).',
+        [Step + 1, GenerationLimit, Result.AvailableNewTokens]));
+      if Stopping then
+      begin
+        Result.StopReason := 'cancelled';
+        Break;
+      end;
       try
         RequireCall(Model.Embed(StepTokens, EmbedTensor, @ErrorText), @ErrorText);
         CheckTensor(EmbedTensor, [1, Length(StepTokens), Profile.HiddenSize]);
@@ -756,7 +1023,13 @@ begin
         Require(Length(Values) = QwenVocabSize, 'Unexpected number of output logits.');
         for I := 0 to High(Values) do
           Require(not IsNan(Values[I]) and not IsInfinite(Values[I]), 'The model returned nonfinite logits.');
-        TokenID := Integer(ArgMaxOf(@Values[0], Length(Values)));
+        if MaxNewTokens = 0 then
+        begin
+          TokenID := SampleAutoToken(Values, Seen, SampleState);
+          Seen[TokenID] := True;
+        end
+        else
+          TokenID := Integer(ArgMaxOf(@Values[0], Length(Values)));
         SetLength(Result.GeneratedTokenIDs, Length(Result.GeneratedTokenIDs) + 1);
         Result.GeneratedTokenIDs[High(Result.GeneratedTokenIDs)] := TokenID;
         if (TokenID = QwenEOS) or (TokenID = QwenBOS) then
@@ -803,9 +1076,13 @@ begin
   Obj := TJSONObject.Create;
   try
     Obj.AddPair('schema', 'crosspascal-qwen-cuda-run-v1');
-    Obj.AddPair('status', 'CUDA_GENERATION_COMPLETED');
+    if Value.StopReason = 'cancelled' then
+      Obj.AddPair('status', 'CUDA_GENERATION_CANCELLED')
+    else
+      Obj.AddPair('status', 'CUDA_GENERATION_COMPLETED');
     Obj.AddPair('profile_id', Value.ProfileID);
     Obj.AddPair('source_revision', Value.SourceRevision);
+    Obj.AddPair('source_tree_sha256', Value.SourceTreeSHA256);
     Obj.AddPair('device', 'cuda:0');
     Obj.AddPair('device_name', Value.DeviceName);
     Obj.AddPair('compute_version', Value.ComputeVersion);
@@ -815,6 +1092,8 @@ begin
     Obj.AddPair('params_sha256', Value.ParametersSHA256);
     Obj.AddPair('model_metadata_sha256', Value.ModelMetadataSHA256);
     Obj.AddPair('prompt', Value.Prompt);
+    Obj.AddPair('context_tokens', JSONInteger(Value.ContextTokens));
+    Obj.AddPair('available_new_tokens', JSONInteger(Value.AvailableNewTokens));
     PromptIDs := TJSONArray.Create;
     Obj.AddPair('prompt_token_ids', PromptIDs);
     for TokenID in Value.PromptTokenIDs do

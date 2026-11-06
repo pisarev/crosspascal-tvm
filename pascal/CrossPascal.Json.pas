@@ -49,6 +49,7 @@ function ParseCrossJSON(const Text: UnicodeString): TJSONValue;
 function JSONValueText(const Value: TJSONValue): UnicodeString;
 function JSONObjectName(const Obj: TJSONObject; const Index: Integer): UnicodeString;
 function JSONObjectValue(const Obj: TJSONObject; const Index: Integer): TJSONValue;
+function JSONIsBoolean(const Value: TJSONValue): Boolean;
 function JSONIsTrue(const Value: TJSONValue): Boolean;
 function JSONInteger(const Value: Int64): TJSONValue;
 function JSONUnsigned(const Value: UInt64): TJSONValue;
@@ -133,6 +134,15 @@ begin
   Result := Obj.Items[Index];
   {$ELSE}
   Result := Obj.Pairs[Index].JsonValue;
+  {$ENDIF}
+end;
+
+function JSONIsBoolean(const Value: TJSONValue): Boolean;
+begin
+  {$IFDEF FPC}
+  Result := Value is TJSONBoolean;
+  {$ELSE}
+  Result := (Value is TJSONBool) or (Value is TJSONTrue) or (Value is TJSONFalse);
   {$ENDIF}
 end;
 
