@@ -68,6 +68,20 @@ uses
   {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.Json, CrossPascal.SHA256, DLPack, TVM, QwenModel, QwenTokenizer;
 
 type
+  TQwenCudaProfile = record
+    ModelKey: string;
+    ProfileID: string;
+    SourceRepository: string;
+    SourceRevision: string;
+    SourceTreeSHA256: string;
+    HiddenSize: Integer;
+    IntermediateSize: Integer;
+    LayerCount: Integer;
+    AttentionHeads: Integer;
+    KVHeads: Integer;
+    HeadSize: Integer;
+  end;
+
   TInputLease = class
   private
     FStreams: TObjectList<TFileStream>;
@@ -80,6 +94,27 @@ type
   end;
 
 const
+  QwenVocabSize = 151936;
+  QwenBOS = 151643;
+  QwenEOS = 151645;
+  QwenProfiles: array[0..1] of TQwenCudaProfile = (
+    (
+      ModelKey: 'qwen2.5-0.5b';
+    ProfileID: 'qwen2.5-0.5b-cuda-f32-64-v1';
+    SourceRepository: QwenSourceRepository;
+    SourceRevision: QwenSourceRevision;
+    SourceTreeSHA256: QwenSourceTreeSHA256;
+    HiddenSize: 896; IntermediateSize: 4864; LayerCount: 24;
+    AttentionHeads: 14; KVHeads: 2; HeadSize: 64),
+    (
+      ModelKey: 'qwen2.5-1.5b';
+    ProfileID: 'qwen2.5-1.5b-cuda-f32-64-v1';
+    SourceRepository: 'Qwen/Qwen2.5-1.5B-Instruct';
+    SourceRevision: '989aa7980e4cf806f80c7fef2b1adb7bc71aa306';
+    SourceTreeSHA256: '5f0180b3ad3b8652860444471fe9e2dd2e5ce325e5e5dccd2be7190ef437cf0d';
+    HiddenSize: 1536; IntermediateSize: 8960; LayerCount: 28;
+    AttentionHeads: 12; KVHeads: 2; HeadSize: 128)
+  );
   RuntimeNames: array[0..3] of string = (
     'tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll', 'tvm_runtime_cuda.dll');
   RuntimeBytes: array[0..3] of Int64 = (4082176, 2112512, 828416, 365056);
@@ -327,13 +362,14 @@ begin
   Require(IntegerField(Obj, Name) = Expected, 'Unsupported bundle field: ' + Name);
 end;
 
-procedure CheckParameters(const Model, Params: TJSONObject; const IndexText: string);
+function CheckParameters(const Model, Params: TJSONObject; const IndexText: string;
+  const Profile: TQwenCudaProfile): Int64;
 var
   Lines: TStringList;
   Order, Tensors, Shape: TJSONArray;
   Tensor: TJSONObject;
   Words: TQwenWords;
-  Row, Layer, I: Integer;
+  Row, Layer, TensorCount, AttentionWidth: Integer;
   Offset: Int64;
 
   procedure Expect(const Name: string; const Dims: array of Int64);
@@ -371,70 +407,90 @@ var
 begin
   MatchText(Params, 'dtype', 'float32');
   MatchText(Params, 'sha256', TextField(Model, 'params_sha256'));
-  MatchInteger(Params, 'total_bytes', QwenParameterBytes);
   Order := ArrayField(Model, 'param_order');
   Tensors := ArrayField(Params, 'tensors');
-  Require((Order.Count = 170) and (Tensors.Count = 170), 'Expected all 170 parameter tensors.');
+  TensorCount := Profile.LayerCount * 7 + 2;
+  AttentionWidth := (Profile.AttentionHeads + 2 * Profile.KVHeads) * Profile.HeadSize;
+  Require((Order.Count = TensorCount) and (Tensors.Count = TensorCount),
+    'The parameter tensor count differs from the selected Qwen profile.');
   Lines := TStringList.Create;
   try
     Lines.Text := IndexText;
-    Require(Lines.Count = 172, 'Expected exactly 172 parameter-index lines.');
+    Require(Lines.Count = TensorCount + 2, 'Unexpected number of parameter-index lines.');
     Require((Length(Lines[0]) > 0) and (Lines[0][1] = '#'), 'Invalid parameter-index header.');
     Words := SplitWords(Trim(Lines[1]));
-    Require((Length(Words) = 3) and (Words[0] = '170') and
+    Require((Length(Words) = 3) and (Words[0] = IntToStr(TensorCount)) and
       (Words[1] = 'float32') and (Words[2] = 'cuda'), 'The parameters must be float32 CUDA.');
     Row := 0;
     Offset := 0;
-    Expect('model.embed_tokens.weight', [151936, 896]);
-    for Layer := 0 to 23 do
+    Expect('model.embed_tokens.weight', [QwenVocabSize, Profile.HiddenSize]);
+    for Layer := 0 to Profile.LayerCount - 1 do
     begin
-      Expect(Format('model.layers.%d.self_attn.c_attn.weight', [Layer]), [1152, 896]);
-      Expect(Format('model.layers.%d.self_attn.c_attn.bias', [Layer]), [1152]);
-      Expect(Format('model.layers.%d.self_attn.o_proj.weight', [Layer]), [896, 896]);
-      Expect(Format('model.layers.%d.mlp.gate_up_proj.weight', [Layer]), [9728, 896]);
-      Expect(Format('model.layers.%d.mlp.down_proj.weight', [Layer]), [896, 4864]);
-      Expect(Format('model.layers.%d.input_layernorm.weight', [Layer]), [896]);
-      Expect(Format('model.layers.%d.post_attention_layernorm.weight', [Layer]), [896]);
+      Expect(Format('model.layers.%d.self_attn.c_attn.weight', [Layer]),
+        [AttentionWidth, Profile.HiddenSize]);
+      Expect(Format('model.layers.%d.self_attn.c_attn.bias', [Layer]), [AttentionWidth]);
+      Expect(Format('model.layers.%d.self_attn.o_proj.weight', [Layer]),
+        [Profile.HiddenSize, Profile.AttentionHeads * Profile.HeadSize]);
+      Expect(Format('model.layers.%d.mlp.gate_up_proj.weight', [Layer]),
+        [2 * Profile.IntermediateSize, Profile.HiddenSize]);
+      Expect(Format('model.layers.%d.mlp.down_proj.weight', [Layer]),
+        [Profile.HiddenSize, Profile.IntermediateSize]);
+      Expect(Format('model.layers.%d.input_layernorm.weight', [Layer]), [Profile.HiddenSize]);
+      Expect(Format('model.layers.%d.post_attention_layernorm.weight', [Layer]), [Profile.HiddenSize]);
     end;
-    Expect('model.norm.weight', [896]);
-    Require((Row = 170) and (Offset = QwenParameterBytes), 'Unexpected parameter layout.');
-    for I := 0 to Order.Count - 1 do
-      Require(Order.Items[I] is TJSONString, 'Parameter names must be strings.');
+    Expect('model.norm.weight', [Profile.HiddenSize]);
+    Require(Row = TensorCount, 'Unexpected parameter layout.');
+    MatchInteger(Params, 'total_bytes', Offset);
+    MatchInteger(Model, 'params_bytes', Offset);
+    Result := Offset;
   finally
     Lines.Free;
   end;
 end;
 
-procedure CheckModel(const Model, Passport: TJSONObject);
+function CheckModel(const Model, Passport: TJSONObject): TQwenCudaProfile;
 var
   Artifact, TextInfo, TokenizerInfo: TJSONObject;
   Number: Double;
   NumberValue: TJSONValue;
+  ProfileID: string;
+  ProfileIndex: Integer;
 begin
-  MatchText(Model, 'model_key', 'qwen2.5-0.5b');
+  ProfileID := TextField(Model, 'llm_profile_id');
+  ProfileIndex := Low(QwenProfiles);
+  while ProfileIndex <= High(QwenProfiles) do
+  begin
+    if QwenProfiles[ProfileIndex].ProfileID = ProfileID then
+      Break;
+    Inc(ProfileIndex);
+  end;
+  Require(ProfileIndex <= High(QwenProfiles), 'Unsupported Qwen profile: ' + ProfileID);
+  Result := QwenProfiles[ProfileIndex];
+  MatchText(Model, 'model_key', Result.ModelKey);
   MatchText(Model, 'library', 'qwen2-cuda.dll');
   MatchText(Model, 'target', 'cuda');
   Require(TextField(Model, 'arch') <> '', 'The model must declare a CUDA architecture.');
   MatchText(Model, 'dtype', 'float32');
   MatchText(Model, 'build_host_cpu_arch', 'x86_64');
   MatchText(Model, 'tokenizer', 'byte_bpe');
-  MatchText(Model, 'source_repo', QwenSourceRepository);
-  MatchText(Model, 'source_revision', QwenSourceRevision);
-  MatchText(Model, 'source_tree_sha256', QwenSourceTreeSHA256);
+  MatchText(Model, 'source_repo', Result.SourceRepository);
+  MatchText(Model, 'source_revision', Result.SourceRevision);
+  MatchText(Model, 'source_tree_sha256', Result.SourceTreeSHA256);
   Require(IsSHA256(TextField(Model, 'build_plan_sha256')), 'Invalid BuildPlan SHA-256.');
   Require(IsSHA256(TextField(Model, 'params_sha256')), 'Invalid parameter SHA-256.');
-  MatchInteger(Model, 'params_bytes', QwenParameterBytes);
-  MatchInteger(Model, 'context_window_size', 64);
-  MatchInteger(Model, 'prefill_chunk_size', 64);
+  MatchInteger(Model, 'context_window_size', QwenContextSize);
+  MatchInteger(Model, 'prefill_chunk_size', QwenContextSize);
   MatchInteger(Model, 'max_batch_size', 1);
-  MatchInteger(Model, 'hidden_size', 896);
-  MatchInteger(Model, 'num_hidden_layers', 24);
-  MatchInteger(Model, 'num_attention_heads', 14);
-  MatchInteger(Model, 'num_key_value_heads', 2);
-  MatchInteger(Model, 'head_dim', 64);
-  MatchInteger(Model, 'vocab_size', 151936);
-  MatchInteger(Model, 'bos_token_id', 151643);
-  MatchInteger(Model, 'eos_token_id', 151645);
+  MatchInteger(Model, 'hidden_size', Result.HiddenSize);
+  if (ProfileIndex <> Low(QwenProfiles)) or Assigned(Model.GetValue('intermediate_size')) then
+    MatchInteger(Model, 'intermediate_size', Result.IntermediateSize);
+  MatchInteger(Model, 'num_hidden_layers', Result.LayerCount);
+  MatchInteger(Model, 'num_attention_heads', Result.AttentionHeads);
+  MatchInteger(Model, 'num_key_value_heads', Result.KVHeads);
+  MatchInteger(Model, 'head_dim', Result.HeadSize);
+  MatchInteger(Model, 'vocab_size', QwenVocabSize);
+  MatchInteger(Model, 'bos_token_id', QwenBOS);
+  MatchInteger(Model, 'eos_token_id', QwenEOS);
   Require(JSONIsTrue(Field(Model, 'tie_word_embeddings')), 'Tied embeddings are required.');
   NumberValue := Field(Model, 'rope_theta');
   Require((NumberValue is TJSONNumber) and
@@ -452,9 +508,9 @@ begin
   MatchText(Artifact, 'format', 'dll');
   Require(IsSHA256(TextField(Artifact, 'hash')), 'Invalid model-library SHA-256.');
   TextInfo := ObjectField(Passport, 'text');
-  MatchInteger(TextInfo, 'context_window', 64);
-  MatchInteger(TextInfo, 'bos', 151643);
-  MatchInteger(TextInfo, 'eos', 151645);
+  MatchInteger(TextInfo, 'context_window', QwenContextSize);
+  MatchInteger(TextInfo, 'bos', QwenBOS);
+  MatchInteger(TextInfo, 'eos', QwenEOS);
   TokenizerInfo := ObjectField(Passport, 'tokenizer');
   MatchText(TokenizerInfo, 'style', 'byte_bpe');
 end;
@@ -584,6 +640,8 @@ var
   Lease: TInputLease;
   ModelInfo, Passport, ParamsInfo: TJSONObject;
   ModelStream, IndexStream, ParamsStream: TFileStream;
+  Profile: TQwenCudaProfile;
+  ParameterBytes: Int64;
   Tokenizer: TQwenTokenizer;
   Model: TQwenModel;
   EmbedTensor, LogitsTensor: TTVMFFIObjectHandle;
@@ -618,12 +676,12 @@ begin
     Passport := ReadObject(Lease.Hold(Bundle + 'manifest.json'));
     ParamsInfo := ReadObject(Lease.Hold(Bundle + 'params.json'));
     IndexStream := Lease.Hold(Bundle + 'params.index');
-    ParamsStream := Lease.Hold(Bundle + 'params.bin', QwenParameterBytes);
-    CheckModel(ModelInfo, Passport);
-    CheckParameters(ModelInfo, ParamsInfo, ReadText(IndexStream));
-    Result.ProfileID := TextField(ModelInfo, 'llm_profile_id');
+    Profile := CheckModel(ModelInfo, Passport);
+    ParameterBytes := CheckParameters(ModelInfo, ParamsInfo, ReadText(IndexStream), Profile);
+    ParamsStream := Lease.Hold(Bundle + 'params.bin', ParameterBytes);
+    Result.ProfileID := Profile.ProfileID;
     ModelArch := TextField(ModelInfo, 'arch');
-    Result.SourceRevision := QwenSourceRevision;
+    Result.SourceRevision := Profile.SourceRevision;
     Result.Prompt := Prompt;
     Result.ModelMetadataSHA256 := StreamSHA256(ModelStream);
     Result.ModelSHA256 := TextField(ObjectField(Passport, 'artifact'), 'hash');
@@ -634,9 +692,9 @@ begin
       Lease.Hold(Runtime + RuntimeNames[I], RuntimeBytes[I], RuntimeSHA256[I]);
     Tokenizer := TQwenTokenizer.Create;
     RequireCall(Tokenizer.Load(Bundle, @ErrorText), @ErrorText);
-    Require((Tokenizer.TokenCount = 151643) and
-      (Tokenizer.SpecialId('<|im_end|>') = 151645) and
-      (Tokenizer.SpecialId('<|endoftext|>') = 151643), 'Unexpected tokenizer vocabulary.');
+    Require((Tokenizer.TokenCount = QwenBOS) and
+      (Tokenizer.SpecialId('<|im_end|>') = QwenEOS) and
+      (Tokenizer.SpecialId('<|endoftext|>') = QwenBOS), 'Unexpected tokenizer vocabulary.');
     ChatText := '<|im_start|>system'#10'You are a helpful assistant.<|im_end|>'#10 +
       '<|im_start|>user'#10 + Prompt + '<|im_end|>'#10'<|im_start|>assistant'#10;
     Result.PromptTokenIDs := Tokenizer.Encode(ChatText);
@@ -645,7 +703,8 @@ begin
       Format('The chat template uses %d tokens; prompt plus generation must fit in 64.',
         [Length(Result.PromptTokenIDs)]));
     for TokenID in Result.PromptTokenIDs do
-      Require((TokenID >= 0) and (TokenID < 151936), 'A prompt token is outside the model vocabulary.');
+      Require((TokenID >= 0) and (TokenID < QwenVocabSize),
+        'A prompt token is outside the model vocabulary.');
     Notify(Progress, 'Checking parameter SHA-256 before loading the model...');
     Result.ParametersSHA256 := StreamSHA256(ParamsStream);
     Require(Result.ParametersSHA256 = TextField(ModelInfo, 'params_sha256'),
@@ -665,18 +724,19 @@ begin
       ),
       'The bundle targets ' + ModelArch + ', but CUDA device 0 reports ' + DeviceArch + '. Convert the model for this device in the showcase.'
     );
-    Require(Result.FreeDeviceBytes >= QwenParameterBytes + Int64(256) * 1024 * 1024,
+    Require(Result.FreeDeviceBytes >= ParameterBytes + Int64(256) * 1024 * 1024,
       'Not enough free GPU memory for the parameters and minimum workspace reserve.');
     FillChar(Memory, SizeOf(Memory), 0);
     Memory.dwLength := SizeOf(Memory);
     Require(GlobalMemoryStatusEx(Memory), 'Cannot query available system memory.');
     Require(Memory.ullAvailPhys >= UInt64(1024) * 1024 * 1024,
       'At least 1 GiB of free system memory is required before model loading.');
-    Notify(Progress, 'Loading all 24 layers on ' + Result.DeviceName + '...');
+    Notify(Progress, Format('Loading all %d layers on %s...', [Profile.LayerCount, Result.DeviceName]));
     RequireCall(Model.Load(Bundle, @ErrorText), @ErrorText);
     Require((Model.DeviceType = Ord(kDLCUDA)) and (Model.DataBits = 32) and
-      (Length(Model.Entries) = 170), 'The loaded model is not the checked CUDA profile.');
-    RequireCall(Model.CreateCache(1, 64, 64, 16, @ErrorText), @ErrorText);
+      (Length(Model.Entries) = ArrayField(ModelInfo, 'param_order').Count),
+      'The loaded model is not the checked CUDA profile.');
+    RequireCall(Model.CreateCache(1, QwenContextSize, QwenContextSize, 16, @ErrorText), @ErrorText);
     RequireCall(Model.AddSequence(0, @ErrorText), @ErrorText);
     SequenceAdded := True;
     StepTokens := Copy(Result.PromptTokenIDs);
@@ -686,20 +746,20 @@ begin
       Notify(Progress, Format('Generating token %d of %d on CUDA...', [Step + 1, MaxNewTokens]));
       try
         RequireCall(Model.Embed(StepTokens, EmbedTensor, @ErrorText), @ErrorText);
-        CheckTensor(EmbedTensor, [1, Length(StepTokens), 896]);
+        CheckTensor(EmbedTensor, [1, Length(StepTokens), Profile.HiddenSize]);
         if Step = 0 then
           RequireCall(Model.Run('prefill', EmbedTensor, 0, Length(StepTokens), LogitsTensor, @ErrorText), @ErrorText)
         else
           RequireCall(Model.Run('decode', EmbedTensor, 0, 1, LogitsTensor, @ErrorText), @ErrorText);
-        CheckTensor(LogitsTensor, [1, 1, 151936]);
+        CheckTensor(LogitsTensor, [1, 1, QwenVocabSize]);
         RequireCall(Model.ReadFloats(LogitsTensor, Values, @ErrorText), @ErrorText);
-        Require(Length(Values) = 151936, 'Unexpected number of output logits.');
+        Require(Length(Values) = QwenVocabSize, 'Unexpected number of output logits.');
         for I := 0 to High(Values) do
           Require(not IsNan(Values[I]) and not IsInfinite(Values[I]), 'The model returned nonfinite logits.');
         TokenID := Integer(ArgMaxOf(@Values[0], Length(Values)));
         SetLength(Result.GeneratedTokenIDs, Length(Result.GeneratedTokenIDs) + 1);
         Result.GeneratedTokenIDs[High(Result.GeneratedTokenIDs)] := TokenID;
-        if (TokenID = 151645) or (TokenID = 151643) then
+        if (TokenID = QwenEOS) or (TokenID = QwenBOS) then
         begin
           Result.StopReason := 'eos';
           Break;
@@ -712,7 +772,7 @@ begin
     end;
     StepTokens := Copy(Result.GeneratedTokenIDs);
     if (Length(StepTokens) > 0) and
-      ((StepTokens[High(StepTokens)] = 151645) or (StepTokens[High(StepTokens)] = 151643)) then
+      ((StepTokens[High(StepTokens)] = QwenEOS) or (StepTokens[High(StepTokens)] = QwenBOS)) then
         SetLength(StepTokens, Length(StepTokens) - 1);
     Result.Answer := Tokenizer.Decode(StepTokens);
     RequireCall(Model.RemoveSequence(0, @ErrorText), @ErrorText);
