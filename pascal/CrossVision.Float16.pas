@@ -2,7 +2,7 @@
 {                                                                            }
 { CrossVision.Float16                                                        }
 {                                                                            }
-{ Copyright © 2006, 2026 Yuriy Pisarev               }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 

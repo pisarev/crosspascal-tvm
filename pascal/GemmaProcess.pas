@@ -2,7 +2,7 @@
 {                                                                            }
 { GemmaProcess                                                               }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev                                              }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -16,7 +16,7 @@ interface
 
 uses
   {$IFDEF FPC}Windows, SysUtils{$ELSE}Winapi.Windows, System.SysUtils{$ENDIF},
-  CrossPascal.Json;
+  CrossPascal.Json, QwenCuda;
 
 type
   TGemmaProcess = class
@@ -32,6 +32,9 @@ type
     procedure Start(const SDKRoot: string);
     procedure Generate(const Bundle, Prompt: string; const MaxNewTokens: Int64;
       const Plain: Boolean);
+    procedure Request(const Command, Bundle, Prompt: string; const Options: TQwenGenerationOptions); overload;
+    procedure Request(const Command, Bundle, Prompt: string; const Options: TQwenGenerationOptions;
+      const Images: array of string); overload;
     procedure Stop;
     procedure RequestClose;
     function ReadLine(out Line: string): Boolean;
@@ -143,6 +146,55 @@ begin
     Send(Request.ToJSON);
   finally
     Request.Free;
+  end;
+end;
+
+procedure TGemmaProcess.Request(const Command, Bundle, Prompt: string;
+  const Options: TQwenGenerationOptions);
+begin
+  Request(Command, Bundle, Prompt, Options, []);
+end;
+
+procedure TGemmaProcess.Request(const Command, Bundle, Prompt: string;
+  const Options: TQwenGenerationOptions; const Images: array of string);
+const
+  Efforts: array[TQwenAnswerEffort] of string = ('full_context', 'brief', 'balanced', 'detailed');
+var
+  Data, Settings: TJSONObject;
+  Sampling, Image: string;
+  Attachments: TJSONArray;
+begin
+  ValidateQwenGenerationOptions(Options);
+  Inc(FRequestID);
+  Data := TJSONObject.Create;
+  try
+    Data.AddPair('command', Command);
+    Data.AddPair('id', JSONInteger(FRequestID));
+    Data.AddPair('bundle', Bundle);
+    Data.AddPair('prompt', Prompt);
+    Data.AddPair('system_prompt', Options.SystemPrompt);
+    Data.AddPair('max_new_tokens', JSONInteger(Options.MaxNewTokens));
+    Data.AddPair('plain', JSONBoolean(Options.PlainCompletion));
+    Attachments := TJSONArray.Create;
+    Data.AddPair('images', Attachments);
+    for Image in Images do
+      Attachments.AddElement(TJSONString.Create({$IFDEF FPC}UTF8Encode(Image){$ELSE}Image{$ENDIF}));
+    Settings := TJSONObject.Create;
+    Data.AddPair('options', Settings);
+    Sampling := 'greedy';
+    if (Options.Sampling = qsSample) or ((Options.Sampling = qsDefault) and
+      (Options.MaxNewTokens = 0)) then
+        Sampling := 'sample';
+    Settings.AddPair('sampling', Sampling);
+    Settings.AddPair('temperature', JSONFloat(Options.Temperature));
+    Settings.AddPair('top_p', JSONFloat(Options.TopP));
+    Settings.AddPair('top_k', JSONInteger(Options.TopK));
+    Settings.AddPair('repetition_penalty', JSONFloat(Options.RepetitionPenalty));
+    Settings.AddPair('seed', JSONInteger(Options.Seed));
+    Settings.AddPair('effort', Efforts[Options.Effort]);
+    Send(Data.ToJSON);
+  finally
+    Data.Free;
   end;
 end;
 

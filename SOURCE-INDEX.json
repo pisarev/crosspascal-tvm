@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-012",
+  "release_id": "early-access-013",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -52,38 +52,38 @@
     },
     {
       "path": "pascal/BPETokenizer.pas",
-      "bytes": 5429,
-      "sha256": "b32389e07bf85b5bb30a427ea3fce4dfebd8208f286b1cd495931f1b7d360eb4"
+      "bytes": 5254,
+      "sha256": "6648fd2ba41039b92c50dd43f75dda8825a3aeea56216475c2903ce419c42f17"
     },
     {
       "path": "pascal/CrossPascal.Json.pas",
-      "bytes": 5424,
-      "sha256": "5b67c570c371edc328ae296dd25ba4d00ccfb79fa667fc5ab4d5e8380a02f13c"
+      "bytes": 5448,
+      "sha256": "f635210e36bcaa4232b8c065801371290ee6e4d4b52783fd0733e34ad5da3f31"
     },
     {
       "path": "pascal/CrossPascal.SHA256.pas",
-      "bytes": 3861,
-      "sha256": "72666cd820494c9bde47f7eaef6c55ec8d25cccf12c905c94c537ce0161e7e93"
+      "bytes": 3885,
+      "sha256": "3252e0423267769cde4fa1ae5dc5edd0a1fac013bbb280b988e554fba78f9011"
     },
     {
       "path": "pascal/CrossPascal.WinMemory.pas",
-      "bytes": 1102,
-      "sha256": "827624c1c870fc588cbd5f8b4c84db7f43e0e77f7fba721e7c0c3d91d7978920"
+      "bytes": 1087,
+      "sha256": "019a387aa97bcc99c271549405da4810f8b2ff45bb040bfdce637f695a914d48"
     },
     {
       "path": "pascal/CrossVision.Float16.pas",
-      "bytes": 4943,
-      "sha256": "446d4dcccca9d63d1b3e03576dbc4f486c07220f5c011b092e2e7f237291c1ce"
+      "bytes": 4815,
+      "sha256": "87fead28c46bfbe81502a44dab43f4ac906124ed50cb3c8935cf7175caeccdca"
     },
     {
       "path": "pascal/CrossVision.ML.CpuVision.pas",
-      "bytes": 35722,
-      "sha256": "f26de799c8384868abf3bd1fdfdbe96ce481521ffc8cf15f7959773496f265a1"
+      "bytes": 35746,
+      "sha256": "0cdc9076936abd0a61bcf8ee397c8b86cb0d908e18d0dee8eb3ddbe08657489e"
     },
     {
       "path": "pascal/CrossVision.ML.pas",
-      "bytes": 6360,
-      "sha256": "4a2ad8652bf5bca4d3174663577a8fd5f242107da0b977eaee27316027b18df8"
+      "bytes": 6151,
+      "sha256": "2750dcffef155f02bdccf394e20036ec3465b7684624f08d7f3d939c741945cc"
     },
     {
       "path": "pascal/DLPack.pas",
@@ -92,38 +92,43 @@
     },
     {
       "path": "pascal/GemmaProcess.pas",
-      "bytes": 6863,
-      "sha256": "a93c78686f6b152f398cf8e4593a580d3d94ba69291142713be28552ad753082"
+      "bytes": 9035,
+      "sha256": "95e18b65e429998ba3a356b96a03aae0e8216f63e7b528f537cc74c63b812604"
+    },
+    {
+      "path": "pascal/LanguageModel.pas",
+      "bytes": 9354,
+      "sha256": "135c77e698e1f3e50063b27e6bf6de6bfff24991763653744bd64d14805adaae"
     },
     {
       "path": "pascal/QwenCuda.pas",
-      "bytes": 50727,
-      "sha256": "373a2ee12995cfc89da74c21bbbcac0e6d30428028b068099e7b98746783d647"
+      "bytes": 52903,
+      "sha256": "1bb926bf2b9a8048276a8408dc90c3f1e8141cabaf03b4b2b117b62e00a9b27a"
     },
     {
       "path": "pascal/QwenModel.pas",
-      "bytes": 17577,
-      "sha256": "cbcebdd0ab64325148302b64860d567e84e921a5f37421fc1f8cdb56027d96f4"
+      "bytes": 17600,
+      "sha256": "598a7ffd2d38b26c32abbd1556c7bafbecd76c6a8af082d4f01f62872821be3b"
     },
     {
       "path": "pascal/QwenTokenizer.pas",
-      "bytes": 13090,
-      "sha256": "911d7a0d989c32664cce8185f0f0837f16d61c690c84c619cbfff35cdc781266"
+      "bytes": 12652,
+      "sha256": "7544e52de1606a9d7e936f75be2c3b2c069682973c98c01e2dae51286d14f3c4"
     },
     {
       "path": "pascal/TVM.pas",
-      "bytes": 97967,
-      "sha256": "67d904c3d1317ef30183642e24110e0a1e75aca6ad3bed92f256585ab21ff0f3"
+      "bytes": 95291,
+      "sha256": "24e12836701997753f3684839ac5adbde7932bc08ac683fb83d09dc12f56dc21"
     },
     {
       "path": "pascal/TVM.RtDetr.pas",
-      "bytes": 21097,
-      "sha256": "cdffd0cc83039e059ee00961e09eafdfac521c4f8cbd2d090bfdbd155fe90785"
+      "bytes": 20550,
+      "sha256": "d2b87738cc87ad0a7bb98b8837a2a1a1979c1c105a7d2ee81f75dab4aee9b742"
     },
     {
       "path": "pascal/TVM.Yolo11.pas",
-      "bytes": 72557,
-      "sha256": "8695ff7b056f8e4f6bc31599ad0daa3fc2500e4eddcf3eb68b19ebe33f5a50f2"
+      "bytes": 70598,
+      "sha256": "5dbc1eef1947ebf7f862aceb0b2afe28c082f61584ca17478a82060c38f69af1"
     },
     {
       "path": "README.md",

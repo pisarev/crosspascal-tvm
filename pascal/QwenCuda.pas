@@ -54,6 +54,8 @@ type
     TopK: Integer;
     RepetitionPenalty: Double;
     Seed: Int64;
+    SystemPrompt: string;
+    PlainCompletion: Boolean;
   end;
 
   TQwenCudaResult = record
@@ -84,8 +86,17 @@ type
   TQwenCudaSession = class
   private
     FState: TObject;
+    function Execute(const BundleDirectory, RuntimeDirectory, Prompt: string;
+      const Options: TQwenGenerationOptions; const Progress: TQwenProgress;
+      const StopRequested: TQwenStopRequested; const TextUpdated: TQwenProgress;
+      const LoadOnly: Boolean): TQwenCudaResult;
+    function GetLoaded: Boolean;
   public
     destructor Destroy; override;
+    function Load(const BundleDirectory, RuntimeDirectory: string;
+      const Progress: TQwenProgress = nil): TQwenCudaResult;
+    procedure Unload;
+    property Loaded: Boolean read GetLoaded;
     function Run(const BundleDirectory, RuntimeDirectory, Prompt: string;
       const Options: TQwenGenerationOptions; const Progress: TQwenProgress = nil;
       const StopRequested: TQwenStopRequested = nil;
@@ -833,6 +844,8 @@ begin
   Result.TopK := 20;
   Result.RepetitionPenalty := 1.1;
   Result.Seed := -1;
+  Result.SystemPrompt := 'You are a helpful assistant.';
+  Result.PlainCompletion := False;
 end;
 
 procedure ValidateQwenGenerationOptions(const Options: TQwenGenerationOptions);
@@ -947,9 +960,41 @@ begin
   inherited Destroy;
 end;
 
+function TQwenCudaSession.GetLoaded: Boolean;
+begin
+  Result := FState <> nil;
+end;
+
+procedure TQwenCudaSession.Unload;
+begin
+  Require(InterlockedCompareExchange(Running, 1, 0) = 0,
+    'A Qwen operation is active. Stop it before unloading.');
+  try
+    FreeAndNil(FState);
+  finally
+    InterlockedExchange(Running, 0);
+  end;
+end;
+
+function TQwenCudaSession.Load(const BundleDirectory, RuntimeDirectory: string;
+  const Progress: TQwenProgress): TQwenCudaResult;
+begin
+  Result := Execute(BundleDirectory, RuntimeDirectory, '', DefaultQwenGenerationOptions,
+    Progress, nil, nil, True);
+end;
+
 function TQwenCudaSession.Run(const BundleDirectory, RuntimeDirectory, Prompt: string;
   const Options: TQwenGenerationOptions; const Progress: TQwenProgress;
   const StopRequested: TQwenStopRequested; const TextUpdated: TQwenProgress): TQwenCudaResult;
+begin
+  Result := Execute(BundleDirectory, RuntimeDirectory, Prompt, Options, Progress,
+    StopRequested, TextUpdated, False);
+end;
+
+function TQwenCudaSession.Execute(const BundleDirectory, RuntimeDirectory, Prompt: string;
+  const Options: TQwenGenerationOptions; const Progress: TQwenProgress;
+  const StopRequested: TQwenStopRequested; const TextUpdated: TQwenProgress;
+  const LoadOnly: Boolean): TQwenCudaResult;
 const
   EffortBudget: array[TQwenAnswerEffort] of Integer = (0, 128, 512, 1024);
 var
@@ -997,7 +1042,8 @@ begin
   try
     CheckStop;
     ValidateQwenGenerationOptions(Options);
-    Require((Trim(Prompt) <> '') and (Length(Prompt) <= 4096), 'Enter a short, nonempty prompt.');
+    if not LoadOnly then
+      Require(Trim(Prompt) <> '', 'Enter a nonempty prompt.');
     Bundle := DirectoryPath(BundleDirectory);
     Runtime := DirectoryPath(RuntimeDirectory);
     State := TQwenSessionState(FState);
@@ -1047,13 +1093,20 @@ begin
     Result.GenerationOptions := Options;
     Result.ModelReused := Reused;
     Result.Prompt := Prompt;
-    ChatText := '<|im_start|>system'#10'You are a helpful assistant.<|im_end|>'#10 +
-      '<|im_start|>user'#10 + Prompt + '<|im_end|>'#10'<|im_start|>assistant'#10;
+    if Options.PlainCompletion then
+      ChatText := Prompt
+    else begin
+      ChatText := '';
+      if Options.SystemPrompt <> '' then
+        ChatText := '<|im_start|>system'#10 + Options.SystemPrompt + '<|im_end|>'#10;
+      ChatText := ChatText + '<|im_start|>user'#10 + Prompt +
+        '<|im_end|>'#10'<|im_start|>assistant'#10;
+    end;
     Result.PromptTokenIDs := State.Tokenizer.Encode(ChatText);
     Result.ContextTokens := QwenDefaultContextSize;
     Result.AvailableNewTokens := Result.ContextTokens - Length(Result.PromptTokenIDs);
     Require(
-      (Length(Result.PromptTokenIDs) > 0) and (Result.AvailableNewTokens > 0),
+      LoadOnly or ((Length(Result.PromptTokenIDs) > 0) and (Result.AvailableNewTokens > 0)),
       Format(
         'The prompt uses %d tokens with the template. It must leave room in the %d-token context.',
         [
@@ -1145,6 +1198,12 @@ begin
       State.Info.PromptTokenIDs := nil;
       State.Info.Sampled := False;
       State.Info.SamplingSeed := 0;
+    end;
+    if LoadOnly then
+    begin
+      Result.ElapsedMilliseconds := GetTickCount64 - Started;
+      Succeeded := True;
+      Exit;
     end;
     RequireCall(State.Model.AddSequence(0, @ErrorText), @ErrorText);
     SequenceAdded := True;
@@ -1252,6 +1311,8 @@ begin
     Generation := TJSONObject.Create;
     Obj.AddPair('generation', Generation);
     Generation.AddPair('max_new_tokens', JSONInteger(Value.GenerationOptions.MaxNewTokens));
+    Generation.AddPair('system_prompt', Value.GenerationOptions.SystemPrompt);
+    Generation.AddPair('plain_completion', JSONBoolean(Value.GenerationOptions.PlainCompletion));
     Generation.AddPair('answer_effort', EffortName[Value.GenerationOptions.Effort]);
     if Value.Sampled then
     begin

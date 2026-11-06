@@ -2,7 +2,7 @@
 {                                                                            }
 { QwenModel                                                                  }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -344,7 +344,7 @@ begin
     else begin
       if not TTVMRuntime.CallFunc(Once,
         [TTVMRuntime.AnyInt(DeviceType), TTVMRuntime.AnyInt(0),
-         TTVMRuntime.AnyInt(kTVMVMAllocPooled),
+         TTVMRuntime.AnyInt(kTVMVMAllocNaive),
          TTVMRuntime.AnyInt(Ord(kDLCPU)), TTVMRuntime.AnyInt(0),
          TTVMRuntime.AnyInt(kTVMVMAllocPooled)], Res, Error) then
           Exit;
