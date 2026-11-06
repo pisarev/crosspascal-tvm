@@ -1,0 +1,42 @@
+{
+  "schema": "crosspascal-tvm-windows-x64-cuda-runtime-v1",
+  "platform": "windows-x86_64",
+  "tvm_version": "0.26.0",
+  "tvm_revision_label": "bb9bc20a8294fb19a2a40f029fe57baa546a8206",
+  "ffi_version": "0.1.14",
+  "ffi_c_abi_version": "0.1.14",
+  "ffi_version_note": "Official PyPI wheel. The exact Windows DLL returned 0.1.14 from TVMFFIGetVersion.",
+  "ffi_revision_label": "70e5af34b162096340695c583b11c197f3a89595",
+  "ffi_modified": false,
+  "files": [
+    {
+      "name": "tvm_ffi.dll",
+      "bytes": 4082176,
+      "sha256": "2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913"
+    },
+    {
+      "name": "tvm_runtime.dll",
+      "bytes": 2112512,
+      "sha256": "45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1"
+    },
+    {
+      "name": "tvm_runtime_extra.dll",
+      "bytes": 828416,
+      "sha256": "4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee"
+    },
+    {
+      "name": "tvm_runtime_cuda.dll",
+      "bytes": 365056,
+      "sha256": "4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b"
+    }
+  ],
+  "external_dependencies": [
+    "Compatible NVIDIA driver supplying nvcuda.dll",
+    "Microsoft Visual C++ x64 runtime and Windows UCRT"
+  ],
+  "native_compiler_included": false,
+  "model_weights_included": false,
+  "reproducible_rebuild_claim": false,
+  "validation_scope": "Execution results are recorded separately for a specific bundle, device and prompt.",
+  "installation": "scripts/install_tvm_windows.py"
+}

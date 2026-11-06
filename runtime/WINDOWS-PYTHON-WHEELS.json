@@ -1,0 +1,109 @@
+{
+  "schema": "crosspascal-windows-python-wheels-v1",
+  "wheels": [
+    {
+      "name": "numpy",
+      "version": "2.5.2",
+      "filename": "numpy-2.5.2-cp312-cp312-win_amd64.whl",
+      "directory": "7f/b9/87fea2769fe1c47c1b5b01d8310772c9d1a85d485de7cf386ef7a3332b02",
+      "sha256": "28ac63476ec7651484215ee7fa15a1f78b57c14621f01e392afe17b9a1390ce4",
+      "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
+    },
+    {
+      "name": "onnx",
+      "version": "1.22.0",
+      "filename": "onnx-1.22.0-cp312-abi3-win_amd64.whl",
+      "directory": "13/a8/734725bb703c5fabb687f79c79e51249475212b3eb37771ac4a4ac9b487f",
+      "sha256": "72ccebab3bac07215c204ce8848d42e78eaaa666badbf72d25cd359b9f269e3a",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.29.0",
+      "filename": "onnxruntime-1.29.0-cp312-cp312-win_amd64.whl",
+      "directory": "b4/80/5b28f1f1111210fc4a336ddbc6950f468ebf9a6a265420568f4f43fa33ce",
+      "sha256": "4acf2b4948b7ede87221ca6332344b8facdc8059d6ac751a7d367d04532b02dd",
+      "license": "MIT License"
+    },
+    {
+      "name": "pillow",
+      "version": "12.3.0",
+      "filename": "pillow-12.3.0-cp312-cp312-win_amd64.whl",
+      "directory": "45/89/da2f7971a317f83d807fdd4065c0af40208e59e692cc43d315a71a0e96d1",
+      "sha256": "a2b55dd6b2a4c4b7d87ffa56bdb33fdc5fdb9a462173861a7bc097f17d91cb09",
+      "license": "MIT-CMU"
+    },
+    {
+      "name": "cuda-bindings",
+      "version": "13.3.1",
+      "filename": "cuda_bindings-13.3.1-cp312-cp312-win_amd64.whl",
+      "directory": "7c/95/872a0392122f1fb43fcb06869790ef3171f37beee9f7db8f441739113570",
+      "sha256": "b134dd8c5c66ae4c4ad814f7aee88fd215353c077010cbc47e3b55ed35ec9eff",
+      "license": "LicenseRef-NVIDIA-SOFTWARE-LICENSE"
+    },
+    {
+      "name": "cuda-pathfinder",
+      "version": "1.8.0",
+      "filename": "cuda_pathfinder-1.8.0-py3-none-any.whl",
+      "directory": "a1/b1/ef21259ec74fe0b265ed201379de1d0ef7c14178313ee03705952f1b7093",
+      "sha256": "c44e574dc997fae2814721d1ae97d0fd6db76db82decbe9b753bf75de53f515e",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "psutil",
+      "version": "7.2.2",
+      "filename": "psutil-7.2.2-cp37-abi3-win_amd64.whl",
+      "directory": "b4/90/e2159492b5426be0c1fef7acba807a03511f97c5f86b3caeda6ad92351a7",
+      "sha256": "eb7e81434c8d223ec4a219b5fc1c47d0417b12be7ea866e24fb5ad6e84b3d988",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "cloudpickle",
+      "version": "3.1.2",
+      "filename": "cloudpickle-3.1.2-py3-none-any.whl",
+      "directory": "88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6",
+      "sha256": "9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "ml_dtypes",
+      "version": "0.6.0",
+      "filename": "ml_dtypes-0.6.0-cp312-cp312-win_amd64.whl",
+      "directory": "ba/db/9c61ec2760b5cbfb1c6558d5c991a6d8fd3271053c32db20506a9a90272b",
+      "sha256": "2a3e9d53925597fbffafd2a37048dadeddd0bdaba58058f6ae0869ed709a184d",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+      "directory": "49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "license": "PSF-2.0"
+    },
+    {
+      "name": "protobuf",
+      "version": "7.36.0",
+      "filename": "protobuf-7.36.0-cp310-abi3-win_amd64.whl",
+      "directory": "0e/4e/12cb93270967a2affff5b3f720694700d4d87712a67afd05c8cb3f6fa52c",
+      "sha256": "1781cc1de61249b750848029bca452c0a8b7e990080316b9bbc2518b2117b488",
+      "license": "3-Clause BSD License"
+    },
+    {
+      "name": "flatbuffers",
+      "version": "25.12.19",
+      "filename": "flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "directory": "e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92",
+      "sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+      "license": "Apache 2.0"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "filename": "packaging-26.3-py3-none-any.whl",
+      "directory": "63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527",
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+      "license": "Apache-2.0 OR BSD-2-Clause"
+    }
+  ]
+}

@@ -1,0 +1,776 @@
+{ ************************************************************************** }
+{                                                                            }
+{ QwenCuda                                                                   }
+{                                                                            }
+{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{                                                                            }
+{ ************************************************************************** }
+
+unit QwenCuda;
+
+{$IFDEF FPC}
+{$MODE DELPHIUNICODE}
+{$ENDIF}
+
+{$B-}
+{$POINTERMATH ON}
+{$IFNDEF WIN64}
+  {$MESSAGE ERROR 'QwenCuda requires Windows 64-bit'}
+{$ENDIF}
+{$IFNDEF TVM_LAZY_INIT}
+  {$MESSAGE ERROR 'Define TVM_LAZY_INIT in the project before compiling TVM units'}
+{$ENDIF}
+
+interface
+
+uses
+  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF};
+
+const
+  QwenSourceRepository = 'Qwen/Qwen2.5-0.5B-Instruct';
+  QwenSourceRevision = '7ae557604adf67be50417f59c2c2f167def9a775';
+  QwenSourceTreeSHA256 = '90361a89884fd025cac6718a75d8ede78d2e259d2be5bef2e33d78f08f8585b1';
+  QwenParameterBytes: Int64 = 1976131072;
+  QwenContextSize = 64;
+  QwenDefaultMaxNewTokens = 6;
+
+type
+  EQwenCuda = class(Exception);
+  TQwenProgress = {$IFDEF FPC}procedure(const MessageText: string) of object{$ELSE}reference to procedure(const MessageText: string){$ENDIF};
+
+  TQwenCudaResult = record
+    ProfileID: string;
+    SourceRevision: string;
+    DeviceName: string;
+    ComputeVersion: string;
+    FreeDeviceBytes: Int64;
+    TotalDeviceBytes: Int64;
+    ModelSHA256: string;
+    ParametersSHA256: string;
+    ModelMetadataSHA256: string;
+    Prompt: string;
+    PromptTokenIDs: TArray<Integer>;
+    GeneratedTokenIDs: TArray<Integer>;
+    Answer: string;
+    StopReason: string;
+    ElapsedMilliseconds: UInt64;
+  end;
+
+function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
+  const MaxNewTokens: Integer; const Progress: TQwenProgress = nil): TQwenCudaResult;
+function QwenResultJSON(const Value: TQwenCudaResult): string;
+
+implementation
+
+uses
+  {$IFDEF FPC}Windows, Classes, Generics.Collections, Math, {$ELSE}
+  Winapi.Windows, System.Classes, System.Generics.Collections, System.Math, {$ENDIF}
+  {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.Json, CrossPascal.SHA256, DLPack, TVM, QwenModel, QwenTokenizer;
+
+type
+  TInputLease = class
+  private
+    FStreams: TObjectList<TFileStream>;
+    FNames: TStringList;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function Hold(const Path: string; const ExpectedBytes: Int64 = -1;
+      const ExpectedSHA256: string = ''): TFileStream;
+  end;
+
+const
+  RuntimeNames: array[0..3] of string = (
+    'tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll', 'tvm_runtime_cuda.dll');
+  RuntimeBytes: array[0..3] of Int64 = (4082176, 2112512, 828416, 365056);
+  RuntimeSHA256: array[0..3] of string = (
+    '2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913',
+    '45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1',
+    '4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee',
+    '4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b');
+  TokenizerNames: array[0..4] of string = (
+    'tokenizer.index', 'tokenizer-merges.bin', 'tokenizer-specials.txt',
+    'tokenizer-tokens.bin', 'tokenizer-tokens.index');
+  TokenizerBytes: array[0..4] of Int64 = (187, 1816644, 473, 975969, 1213144);
+  TokenizerSHA256: array[0..4] of string = (
+    'af53370b9a99e25c51ed57e17b09cf7b91e54f624441733afc01a1ee54115c81',
+    '774198a3f5cbc298c6446fd4e7133e55a3676ac95ef21fcb9e792cb31e6c4c31',
+    'cf142f59d612002b0ba89a58bb1c12d9aa588afe57f0360e0d89f46d0f45262d',
+    '97a0a8a1d844e38ef7ca9de4bda3a3388676f44d0321163d383454d049a507c4',
+    '154f80686ba52e8dc9647bd274284fb59fc6c0530ec699c80e0d06e5859291f4');
+  DLLSearchFlags = $00000100 or $00001000;
+  MaxMetadataBytes = 1024 * 1024;
+
+var
+  Running: LongInt;
+  LoadedRuntimeDirectory: string;
+  RuntimeInitializationFailed: Boolean;
+
+procedure Require(const Condition: Boolean; const MessageText: string);
+begin
+  if not Condition then
+    raise EQwenCuda.Create(MessageText);
+end;
+
+procedure RequireCall(const Condition: Boolean;
+  const ErrorText: {$IFDEF FPC}PAnsiString{$ELSE}PString{$ENDIF});
+begin
+  if not Condition then
+  begin
+    if Assigned(ErrorText) and (ErrorText^ <> '') then
+      raise EQwenCuda.Create(ErrorText^);
+    raise EQwenCuda.Create('The operation failed without an error message.');
+  end;
+end;
+
+procedure Notify(const Progress: TQwenProgress; const MessageText: string);
+begin
+  if Assigned(Progress) then
+    Progress(MessageText);
+end;
+
+function DirectoryPath(const Value: string): string;
+var
+  Current, Parent: string;
+  Attributes: DWORD;
+begin
+  Require(Trim(Value) <> '', 'Select a directory first.');
+  Result := IncludeTrailingPathDelimiter(ExpandFileName(Value));
+  Require(DirectoryExists(Result), 'Directory is unavailable: ' + Result);
+  Current := ExcludeTrailingPathDelimiter(Result);
+  repeat
+    Attributes := GetFileAttributesW(PWideChar(Current));
+    Require((Attributes <> INVALID_FILE_ATTRIBUTES) and
+      ((Attributes and FILE_ATTRIBUTE_REPARSE_POINT) = 0),
+      'Select a directory whose path does not contain a link or junction.');
+    Parent := ExtractFileDir(Current);
+    if SameText(Parent, Current) or (Parent = '') then
+      Break;
+    Current := Parent;
+  until False;
+end;
+
+function IsSHA256(const Value: string): Boolean;
+var
+  C: Char;
+begin
+  Result := Length(Value) = 64;
+  if Result then
+    for C in Value do
+      if not CharInSet(C, ['0'..'9', 'a'..'f']) then
+        Exit(False);
+end;
+
+function StreamSHA256(const Stream: TStream): string;
+begin
+  Stream.Position := 0;
+  Result := SHA256Stream(Stream);
+  Stream.Position := 0;
+end;
+
+constructor TInputLease.Create;
+begin
+  inherited Create;
+  FStreams := TObjectList<TFileStream>.Create(True);
+  FNames := TStringList.Create;
+  FNames.CaseSensitive := False;
+end;
+
+destructor TInputLease.Destroy;
+begin
+  FStreams.Free;
+  FNames.Free;
+  inherited Destroy;
+end;
+
+function TInputLease.Hold(const Path: string; const ExpectedBytes: Int64;
+  const ExpectedSHA256: string): TFileStream;
+var
+  Attributes: DWORD;
+  Index: Integer;
+begin
+  Index := FNames.IndexOf(Path);
+  if Index >= 0 then
+    Result := FStreams[Index]
+  else begin
+    Attributes := GetFileAttributesW(PWideChar(Path));
+    Require((Attributes <> INVALID_FILE_ATTRIBUTES) and
+      ((Attributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)) = 0),
+      'A required regular file is unavailable: ' + Path);
+    Result := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
+    FStreams.Add(Result);
+    FNames.Add(Path);
+  end;
+  Require(Result.Size > 0, 'A required file is empty: ' + Path);
+  if ExpectedBytes >= 0 then
+    Require(Result.Size = ExpectedBytes, 'Unexpected file length: ' + Path);
+  if ExpectedSHA256 <> '' then
+  begin
+    Require(IsSHA256(ExpectedSHA256), 'Invalid SHA-256 metadata: ' + Path);
+    Require(StreamSHA256(Result) = ExpectedSHA256, 'SHA-256 mismatch: ' + Path);
+  end;
+end;
+
+function ReadText(const Stream: TFileStream): string;
+var
+  Data: TBytes;
+begin
+  Require(Stream.Size <= MaxMetadataBytes, 'Metadata exceeds the size limit.');
+  SetLength(Data, Integer(Stream.Size));
+  Stream.Position := 0;
+  Stream.ReadBuffer(Data[0], Length(Data));
+  Result := TEncoding.UTF8.GetString(Data);
+  if (Result <> '') and (Result[1] = #$FEFF) then
+    Delete(Result, 1, 1);
+end;
+
+procedure CheckJSONKeys(const Value: TJSONValue; const Depth: Integer);
+var
+  Obj: TJSONObject;
+  Arr: TJSONArray;
+  Names: TStringList;
+  Index: Integer;
+  Name: string;
+begin
+  Require(Depth <= 16, 'JSON nesting exceeds the supported limit.');
+  if Value is TJSONObject then
+  begin
+    Obj := TJSONObject(Value);
+    Names := TStringList.Create;
+    try
+      Names.CaseSensitive := True;
+      for Index := 0 to Obj.Count - 1 do
+      begin
+        Name := JSONObjectName(Obj, Index);
+        Require(Names.IndexOf(Name) < 0, 'Duplicate JSON key: ' + Name);
+        Names.Add(Name);
+        CheckJSONKeys(JSONObjectValue(Obj, Index), Depth + 1);
+      end;
+    finally
+      Names.Free;
+    end;
+  end
+  else if Value is TJSONArray then
+    begin
+      Arr := TJSONArray(Value);
+      for Index := 0 to Arr.Count - 1 do
+        CheckJSONKeys(Arr.Items[Index], Depth + 1);
+    end;
+end;
+
+function ReadObject(const Stream: TFileStream): TJSONObject;
+var
+  Value: TJSONValue;
+begin
+  Value := ParseCrossJSON(ReadText(Stream));
+  try
+    Require(Value is TJSONObject, 'Expected a JSON object.');
+    CheckJSONKeys(Value, 0);
+    Result := TJSONObject(Value);
+    Value := nil;
+  finally
+    Value.Free;
+  end;
+end;
+
+function Field(const Obj: TJSONObject; const Name: string): TJSONValue;
+begin
+  Result := Obj.GetValue(Name);
+  Require(Assigned(Result), 'Missing JSON field: ' + Name);
+end;
+
+function TextField(const Obj: TJSONObject; const Name: string): string;
+var
+  Value: TJSONValue;
+begin
+  Value := Field(Obj, Name);
+  Require(Value is TJSONString, 'Expected a JSON string: ' + Name);
+  Result := JSONValueText(Value);
+end;
+
+function IntegerValue(const Value: TJSONValue; const Name: string): Int64;
+begin
+  Require((Value is TJSONNumber) and TryStrToInt64(JSONValueText(Value), Result),
+    'Expected an exact JSON integer: ' + Name);
+end;
+
+function IntegerField(const Obj: TJSONObject; const Name: string): Int64;
+begin
+  Result := IntegerValue(Field(Obj, Name), Name);
+end;
+
+function ObjectField(const Obj: TJSONObject; const Name: string): TJSONObject;
+var
+  Value: TJSONValue;
+begin
+  Value := Field(Obj, Name);
+  Require(Value is TJSONObject, 'Expected a JSON object: ' + Name);
+  Result := TJSONObject(Value);
+end;
+
+function ArrayField(const Obj: TJSONObject; const Name: string): TJSONArray;
+var
+  Value: TJSONValue;
+begin
+  Value := Field(Obj, Name);
+  Require(Value is TJSONArray, 'Expected a JSON array: ' + Name);
+  Result := TJSONArray(Value);
+end;
+
+procedure MatchText(const Obj: TJSONObject; const Name, Expected: string);
+begin
+  Require(TextField(Obj, Name) = Expected, 'Unsupported bundle field: ' + Name);
+end;
+
+procedure MatchInteger(const Obj: TJSONObject; const Name: string; const Expected: Int64);
+begin
+  Require(IntegerField(Obj, Name) = Expected, 'Unsupported bundle field: ' + Name);
+end;
+
+procedure CheckParameters(const Model, Params: TJSONObject; const IndexText: string);
+var
+  Lines: TStringList;
+  Order, Tensors, Shape: TJSONArray;
+  Tensor: TJSONObject;
+  Words: TQwenWords;
+  Row, Layer, I: Integer;
+  Offset: Int64;
+
+  procedure Expect(const Name: string; const Dims: array of Int64);
+  var
+    NBytes: Int64;
+    D: Integer;
+  begin
+    NBytes := SizeOf(Single);
+    for D := 0 to High(Dims) do
+      NBytes := NBytes * Dims[D];
+    Require(Row < Order.Count, 'Parameter count is too small.');
+    Require((Order.Items[Row] is TJSONString) and (JSONValueText(Order.Items[Row]) = Name),
+      'Parameter order mismatch: ' + Name);
+    Require(Tensors.Items[Row] is TJSONObject, 'Invalid parameter metadata row.');
+    Tensor := TJSONObject(Tensors.Items[Row]);
+    MatchText(Tensor, 'name', Name);
+    MatchText(Tensor, 'dtype', 'float32');
+    MatchInteger(Tensor, 'offset', Offset);
+    MatchInteger(Tensor, 'nbytes', NBytes);
+    Shape := ArrayField(Tensor, 'shape');
+    Require(Shape.Count = Length(Dims), 'Parameter rank mismatch: ' + Name);
+    for D := 0 to High(Dims) do
+      Require(IntegerValue(Shape.Items[D], Name) = Dims[D], 'Parameter shape mismatch: ' + Name);
+    Words := SplitWords(Trim(Lines[Row + 2]));
+    Require(Length(Words) = 4 + Length(Dims), 'Invalid parameter index row: ' + Name);
+    Require((Words[0] = Name) and (Words[1] = IntToStr(Offset)) and
+      (Words[2] = IntToStr(NBytes)) and (Words[3] = IntToStr(Length(Dims))),
+      'Parameter index mismatch: ' + Name);
+    for D := 0 to High(Dims) do
+      Require(Words[4 + D] = IntToStr(Dims[D]), 'Parameter index shape mismatch: ' + Name);
+    Inc(Offset, NBytes);
+    Inc(Row);
+  end;
+
+begin
+  MatchText(Params, 'dtype', 'float32');
+  MatchText(Params, 'sha256', TextField(Model, 'params_sha256'));
+  MatchInteger(Params, 'total_bytes', QwenParameterBytes);
+  Order := ArrayField(Model, 'param_order');
+  Tensors := ArrayField(Params, 'tensors');
+  Require((Order.Count = 170) and (Tensors.Count = 170), 'Expected all 170 parameter tensors.');
+  Lines := TStringList.Create;
+  try
+    Lines.Text := IndexText;
+    Require(Lines.Count = 172, 'Expected exactly 172 parameter-index lines.');
+    Require((Length(Lines[0]) > 0) and (Lines[0][1] = '#'), 'Invalid parameter-index header.');
+    Words := SplitWords(Trim(Lines[1]));
+    Require((Length(Words) = 3) and (Words[0] = '170') and
+      (Words[1] = 'float32') and (Words[2] = 'cuda'), 'The parameters must be float32 CUDA.');
+    Row := 0;
+    Offset := 0;
+    Expect('model.embed_tokens.weight', [151936, 896]);
+    for Layer := 0 to 23 do
+    begin
+      Expect(Format('model.layers.%d.self_attn.c_attn.weight', [Layer]), [1152, 896]);
+      Expect(Format('model.layers.%d.self_attn.c_attn.bias', [Layer]), [1152]);
+      Expect(Format('model.layers.%d.self_attn.o_proj.weight', [Layer]), [896, 896]);
+      Expect(Format('model.layers.%d.mlp.gate_up_proj.weight', [Layer]), [9728, 896]);
+      Expect(Format('model.layers.%d.mlp.down_proj.weight', [Layer]), [896, 4864]);
+      Expect(Format('model.layers.%d.input_layernorm.weight', [Layer]), [896]);
+      Expect(Format('model.layers.%d.post_attention_layernorm.weight', [Layer]), [896]);
+    end;
+    Expect('model.norm.weight', [896]);
+    Require((Row = 170) and (Offset = QwenParameterBytes), 'Unexpected parameter layout.');
+    for I := 0 to Order.Count - 1 do
+      Require(Order.Items[I] is TJSONString, 'Parameter names must be strings.');
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure CheckModel(const Model, Passport: TJSONObject);
+var
+  Artifact, TextInfo, TokenizerInfo: TJSONObject;
+  Number: Double;
+  NumberValue: TJSONValue;
+begin
+  MatchText(Model, 'model_key', 'qwen2.5-0.5b');
+  MatchText(Model, 'library', 'qwen2-cuda.dll');
+  MatchText(Model, 'target', 'cuda');
+  Require(TextField(Model, 'arch') <> '', 'The model must declare a CUDA architecture.');
+  MatchText(Model, 'dtype', 'float32');
+  MatchText(Model, 'build_host_cpu_arch', 'x86_64');
+  MatchText(Model, 'tokenizer', 'byte_bpe');
+  MatchText(Model, 'source_repo', QwenSourceRepository);
+  MatchText(Model, 'source_revision', QwenSourceRevision);
+  MatchText(Model, 'source_tree_sha256', QwenSourceTreeSHA256);
+  Require(IsSHA256(TextField(Model, 'build_plan_sha256')), 'Invalid BuildPlan SHA-256.');
+  Require(IsSHA256(TextField(Model, 'params_sha256')), 'Invalid parameter SHA-256.');
+  MatchInteger(Model, 'params_bytes', QwenParameterBytes);
+  MatchInteger(Model, 'context_window_size', 64);
+  MatchInteger(Model, 'prefill_chunk_size', 64);
+  MatchInteger(Model, 'max_batch_size', 1);
+  MatchInteger(Model, 'hidden_size', 896);
+  MatchInteger(Model, 'num_hidden_layers', 24);
+  MatchInteger(Model, 'num_attention_heads', 14);
+  MatchInteger(Model, 'num_key_value_heads', 2);
+  MatchInteger(Model, 'head_dim', 64);
+  MatchInteger(Model, 'vocab_size', 151936);
+  MatchInteger(Model, 'bos_token_id', 151643);
+  MatchInteger(Model, 'eos_token_id', 151645);
+  Require(JSONIsTrue(Field(Model, 'tie_word_embeddings')), 'Tied embeddings are required.');
+  NumberValue := Field(Model, 'rope_theta');
+  Require((NumberValue is TJSONNumber) and
+    TryStrToFloat(JSONValueText(NumberValue), Number, JSONInvariantFormat) and
+    (Number = 1000000.0), 'Unexpected RoPE theta.');
+  MatchText(Passport, 'task_kind', 'text_generation');
+  MatchText(Passport, 'adapter', 'qwen2');
+  Artifact := ObjectField(Passport, 'artifact');
+  MatchText(Artifact, 'file', 'qwen2-cuda.dll');
+  MatchText(Artifact, 'os', 'windows');
+  MatchText(Artifact, 'arch', 'x86_64');
+  MatchText(Artifact, 'device', 'cuda');
+  MatchText(Artifact, 'device_arch', TextField(Model, 'arch'));
+  MatchText(Artifact, 'dtype', 'float32');
+  MatchText(Artifact, 'format', 'dll');
+  Require(IsSHA256(TextField(Artifact, 'hash')), 'Invalid model-library SHA-256.');
+  TextInfo := ObjectField(Passport, 'text');
+  MatchInteger(TextInfo, 'context_window', 64);
+  MatchInteger(TextInfo, 'bos', 151643);
+  MatchInteger(TextInfo, 'eos', 151645);
+  TokenizerInfo := ObjectField(Passport, 'tokenizer');
+  MatchText(TokenizerInfo, 'style', 'byte_bpe');
+end;
+
+function ModulePath(const Handle: HMODULE): string;
+var
+  Buffer: array[0..32767] of Char;
+  Count: DWORD;
+begin
+  Count := GetModuleFileNameW(Handle, @Buffer[0], Length(Buffer));
+  Require((Count > 0) and (Count < DWORD(Length(Buffer))), 'Cannot identify a loaded runtime DLL.');
+  SetString(Result, Buffer, Count);
+  Result := ExpandFileName(Result);
+end;
+
+procedure InitializeRuntime(const Directory: string);
+var
+  Handles: array[0..3] of HMODULE;
+  I: Integer;
+  Version: TTVMFFIVersion;
+begin
+  Require(not RuntimeInitializationFailed, 'Runtime initialization failed earlier. Restart the application.');
+  if LoadedRuntimeDirectory <> '' then
+  begin
+    Require(SameText(LoadedRuntimeDirectory, Directory),
+      'Restart the application before selecting a different runtime.');
+    Exit;
+  end;
+  Require((TTVMRuntime.TModule.Handle = 0) and (TTVMRuntime.TModule.RuntimeHandle = 0),
+    'TVM was initialized before the selected runtime was checked.');
+  RuntimeInitializationFailed := True;
+  for I := 0 to High(RuntimeNames) do
+    Require(GetModuleHandleW(PWideChar(RuntimeNames[I])) = 0,
+      'A TVM DLL is already loaded outside the explicit runtime loader.');
+  for I := 0 to High(RuntimeNames) do
+  begin
+    Handles[I] := LoadLibraryExW(PWideChar(Directory + RuntimeNames[I]), 0, DLLSearchFlags);
+    Require(Handles[I] <> 0, Format('Cannot load %s: %s',
+      [RuntimeNames[I], SysErrorMessage(GetLastError)]));
+    Require(SameText(ModulePath(Handles[I]), Directory + RuntimeNames[I]),
+      'A TVM DLL resolved outside the selected runtime directory.');
+  end;
+  TTVMRuntime.TModule.Handle := Handles[0];
+  TTVMRuntime.TModule.RuntimeHandle := Handles[1];
+  TTVMRuntime.TModule.ExtraRuntimeHandle := Handles[2];
+  TTVMRuntime.TModule.CudaRuntimeHandle := Handles[3];
+  TTVMRuntime.TModule.LibraryPath := Directory;
+  TTVMRuntime.TModule.LibraryName := Directory + RuntimeNames[1];
+  TTVMRuntime.TModule.Initialize(Handles[0], True);
+  TTVMBackend.TModule.Handle := Handles[1];
+  TTVMBackend.TModule.Initialize(Handles[1], True);
+  TTVMRuntime.TModule.ResolveGlobals;
+  Require(Assigned(TTVMRuntime.TModule.TVMFFIGetVersion), 'Missing TVM FFI version function.');
+  TTVMRuntime.TModule.TVMFFIGetVersion(Version);
+  Require((Version.Major = 0) and (Version.Minor = 1) and (Version.Patch = 14),
+    Format('Unexpected TVM FFI ABI %d.%d.%d; expected 0.1.14.',
+      [Version.Major, Version.Minor, Version.Patch]));
+  LoadedRuntimeDirectory := Directory;
+  RuntimeInitializationFailed := False;
+end;
+
+function DeviceAttribute(const Attribute: Integer): TTVMFFIAny;
+var
+  ErrorText: {$IFDEF FPC}AnsiString{$ELSE}string{$ENDIF};
+begin
+  RequireCall(TTVMRuntime.CallGlobal('runtime.GetDeviceAttr',
+    [TTVMRuntime.AnyInt(Ord(kDLCUDA)), TTVMRuntime.AnyInt(0),
+     TTVMRuntime.AnyInt(Attribute)], Result, @ErrorText), @ErrorText);
+end;
+
+function DeviceInteger(const Attribute: Integer): Int64;
+var
+  Value: TTVMFFIAny;
+begin
+  Value := DeviceAttribute(Attribute);
+  Require(Value.TypeIndex in [kTVMFFIInt, kTVMFFIBool], 'Unexpected CUDA device-attribute type.');
+  Result := Value.VInt64;
+end;
+
+function DeviceText(const Attribute: Integer): string;
+var
+  Value: TTVMFFIAny;
+  Bytes: PTVMFFIByteArray;
+  TextValue: UTF8String;
+begin
+  Value := DeviceAttribute(Attribute);
+  try
+    if Value.TypeIndex = kTVMFFISmallStr then
+    begin
+      Require(Value.Padding <= 7, 'Invalid short FFI string.');
+      SetString(TextValue, PAnsiChar(@Value.VBytes[0]), Integer(Value.Padding));
+    end
+    else begin
+      Require((Value.TypeIndex = kTVMFFIStr) and Assigned(Value.VObj),
+        'Unexpected CUDA string-attribute type.');
+      Bytes := PTVMFFIByteArray(NativeUInt(Value.VObj) + TVMFFIObjectPayloadOffset);
+      Require(Bytes.Size <= 4096, 'CUDA device description is too long.');
+      SetString(TextValue, Bytes.Data, Integer(Bytes.Size));
+    end;
+    Result := UTF8ToString(TextValue);
+  finally
+    if Value.TypeIndex >= kTVMFFIStaticObjectBegin then
+      TTVMRuntime.ObjectRelease(Value.VObj);
+  end;
+end;
+
+procedure CheckTensor(const Handle: TTVMFFIObjectHandle; const Shape: array of Int64);
+var
+  Tensor: PDLTensor;
+  I: Integer;
+begin
+  Require(Assigned(Handle), 'TVM returned a null tensor.');
+  Tensor := TTVMRuntime.TensorDLTensor(Handle);
+  Require(Assigned(Tensor) and (Tensor.ndim = Length(Shape)) and
+    (Tensor.device.device_type = kDLCUDA) and (Tensor.device.device_id = 0) and
+    (Tensor.dtype.code = Ord(kDLFloat)) and (Tensor.dtype.bits = 32) and
+    (Tensor.dtype.lanes = 1) and Assigned(Tensor.shape), 'Unexpected CUDA tensor type or rank.');
+  for I := 0 to High(Shape) do
+    Require(Tensor.shape[I] = Shape[I], 'Unexpected CUDA tensor shape.');
+end;
+
+function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
+  const MaxNewTokens: Integer; const Progress: TQwenProgress): TQwenCudaResult;
+var
+  Bundle, Runtime, ChatText, ModelArch, DeviceArch: string;
+  ErrorText: {$IFDEF FPC}AnsiString{$ELSE}string{$ENDIF};
+  Lease: TInputLease;
+  ModelInfo, Passport, ParamsInfo: TJSONObject;
+  ModelStream, IndexStream, ParamsStream: TFileStream;
+  Tokenizer: TQwenTokenizer;
+  Model: TQwenModel;
+  EmbedTensor, LogitsTensor: TTVMFFIObjectHandle;
+  Values: TArray<Single>;
+  StepTokens: TArray<Integer>;
+  I, Step, TokenID: Integer;
+  Started: UInt64;
+  Memory: TMemoryStatusEx;
+  SequenceAdded: Boolean;
+begin
+  Require(InterlockedCompareExchange(Running, 1, 0) = 0, 'A Qwen run is already active.');
+  Started := GetTickCount64;
+  Lease := nil;
+  ModelInfo := nil;
+  Passport := nil;
+  ParamsInfo := nil;
+  Tokenizer := nil;
+  Model := Default(TQwenModel);
+  EmbedTensor := nil;
+  LogitsTensor := nil;
+  SequenceAdded := False;
+  Result := Default(TQwenCudaResult);
+  try
+    Require((MaxNewTokens >= 1) and (MaxNewTokens <= 16), 'Max new tokens must be between 1 and 16.');
+    Require((Trim(Prompt) <> '') and (Length(Prompt) <= 4096), 'Enter a short, nonempty prompt.');
+    Bundle := DirectoryPath(BundleDirectory);
+    Runtime := DirectoryPath(RuntimeDirectory);
+    Lease := TInputLease.Create;
+    Notify(Progress, 'Checking the selected model profile and parameter layout...');
+    ModelStream := Lease.Hold(Bundle + 'model.json');
+    ModelInfo := ReadObject(ModelStream);
+    Passport := ReadObject(Lease.Hold(Bundle + 'manifest.json'));
+    ParamsInfo := ReadObject(Lease.Hold(Bundle + 'params.json'));
+    IndexStream := Lease.Hold(Bundle + 'params.index');
+    ParamsStream := Lease.Hold(Bundle + 'params.bin', QwenParameterBytes);
+    CheckModel(ModelInfo, Passport);
+    CheckParameters(ModelInfo, ParamsInfo, ReadText(IndexStream));
+    Result.ProfileID := TextField(ModelInfo, 'llm_profile_id');
+    ModelArch := TextField(ModelInfo, 'arch');
+    Result.SourceRevision := QwenSourceRevision;
+    Result.Prompt := Prompt;
+    Result.ModelMetadataSHA256 := StreamSHA256(ModelStream);
+    Result.ModelSHA256 := TextField(ObjectField(Passport, 'artifact'), 'hash');
+    Lease.Hold(Bundle + 'qwen2-cuda.dll', -1, Result.ModelSHA256);
+    for I := 0 to High(TokenizerNames) do
+      Lease.Hold(Bundle + TokenizerNames[I], TokenizerBytes[I], TokenizerSHA256[I]);
+    for I := 0 to High(RuntimeNames) do
+      Lease.Hold(Runtime + RuntimeNames[I], RuntimeBytes[I], RuntimeSHA256[I]);
+    Tokenizer := TQwenTokenizer.Create;
+    RequireCall(Tokenizer.Load(Bundle, @ErrorText), @ErrorText);
+    Require((Tokenizer.TokenCount = 151643) and
+      (Tokenizer.SpecialId('<|im_end|>') = 151645) and
+      (Tokenizer.SpecialId('<|endoftext|>') = 151643), 'Unexpected tokenizer vocabulary.');
+    ChatText := '<|im_start|>system'#10'You are a helpful assistant.<|im_end|>'#10 +
+      '<|im_start|>user'#10 + Prompt + '<|im_end|>'#10'<|im_start|>assistant'#10;
+    Result.PromptTokenIDs := Tokenizer.Encode(ChatText);
+    Require((Length(Result.PromptTokenIDs) > 0) and
+      (Length(Result.PromptTokenIDs) + MaxNewTokens <= QwenContextSize),
+      Format('The chat template uses %d tokens; prompt plus generation must fit in 64.',
+        [Length(Result.PromptTokenIDs)]));
+    for TokenID in Result.PromptTokenIDs do
+      Require((TokenID >= 0) and (TokenID < 151936), 'A prompt token is outside the model vocabulary.');
+    Notify(Progress, 'Checking parameter SHA-256 before loading the model...');
+    Result.ParametersSHA256 := StreamSHA256(ParamsStream);
+    Require(Result.ParametersSHA256 = TextField(ModelInfo, 'params_sha256'),
+      'Parameter SHA-256 differs from the converter output.');
+    Notify(Progress, 'Loading the selected CUDA runtime and checking GPU 0...');
+    InitializeRuntime(Runtime);
+    Require(DeviceInteger(0) <> 0, 'CUDA device 0 is unavailable. No CPU fallback is enabled.');
+    Result.ComputeVersion := DeviceText(4);
+    Result.DeviceName := DeviceText(5);
+    Result.TotalDeviceBytes := DeviceInteger(14);
+    Result.FreeDeviceBytes := DeviceInteger(15);
+    DeviceArch := 'sm_' + StringReplace(Result.ComputeVersion, '.', '', []);
+    Require(
+      SameText(
+        ModelArch,
+        DeviceArch
+      ),
+      'The bundle targets ' + ModelArch + ', but CUDA device 0 reports ' + DeviceArch + '. Convert the model for this device in the showcase.'
+    );
+    Require(Result.FreeDeviceBytes >= QwenParameterBytes + Int64(256) * 1024 * 1024,
+      'Not enough free GPU memory for the parameters and minimum workspace reserve.');
+    FillChar(Memory, SizeOf(Memory), 0);
+    Memory.dwLength := SizeOf(Memory);
+    Require(GlobalMemoryStatusEx(Memory), 'Cannot query available system memory.');
+    Require(Memory.ullAvailPhys >= UInt64(1024) * 1024 * 1024,
+      'At least 1 GiB of free system memory is required before model loading.');
+    Notify(Progress, 'Loading all 24 layers on ' + Result.DeviceName + '...');
+    RequireCall(Model.Load(Bundle, @ErrorText), @ErrorText);
+    Require((Model.DeviceType = Ord(kDLCUDA)) and (Model.DataBits = 32) and
+      (Length(Model.Entries) = 170), 'The loaded model is not the checked CUDA profile.');
+    RequireCall(Model.CreateCache(1, 64, 64, 16, @ErrorText), @ErrorText);
+    RequireCall(Model.AddSequence(0, @ErrorText), @ErrorText);
+    SequenceAdded := True;
+    StepTokens := Copy(Result.PromptTokenIDs);
+    Result.StopReason := 'max_new_tokens';
+    for Step := 0 to MaxNewTokens - 1 do
+    begin
+      Notify(Progress, Format('Generating token %d of %d on CUDA...', [Step + 1, MaxNewTokens]));
+      try
+        RequireCall(Model.Embed(StepTokens, EmbedTensor, @ErrorText), @ErrorText);
+        CheckTensor(EmbedTensor, [1, Length(StepTokens), 896]);
+        if Step = 0 then
+          RequireCall(Model.Run('prefill', EmbedTensor, 0, Length(StepTokens), LogitsTensor, @ErrorText), @ErrorText)
+        else
+          RequireCall(Model.Run('decode', EmbedTensor, 0, 1, LogitsTensor, @ErrorText), @ErrorText);
+        CheckTensor(LogitsTensor, [1, 1, 151936]);
+        RequireCall(Model.ReadFloats(LogitsTensor, Values, @ErrorText), @ErrorText);
+        Require(Length(Values) = 151936, 'Unexpected number of output logits.');
+        for I := 0 to High(Values) do
+          Require(not IsNan(Values[I]) and not IsInfinite(Values[I]), 'The model returned nonfinite logits.');
+        TokenID := Integer(ArgMaxOf(@Values[0], Length(Values)));
+        SetLength(Result.GeneratedTokenIDs, Length(Result.GeneratedTokenIDs) + 1);
+        Result.GeneratedTokenIDs[High(Result.GeneratedTokenIDs)] := TokenID;
+        if (TokenID = 151645) or (TokenID = 151643) then
+        begin
+          Result.StopReason := 'eos';
+          Break;
+        end;
+        StepTokens := TArray<Integer>.Create(TokenID);
+      finally
+        TTVMRuntime.ObjectRelease(LogitsTensor);
+        TTVMRuntime.ObjectRelease(EmbedTensor);
+      end;
+    end;
+    StepTokens := Copy(Result.GeneratedTokenIDs);
+    if (Length(StepTokens) > 0) and
+      ((StepTokens[High(StepTokens)] = 151645) or (StepTokens[High(StepTokens)] = 151643)) then
+        SetLength(StepTokens, Length(StepTokens) - 1);
+    Result.Answer := Tokenizer.Decode(StepTokens);
+    RequireCall(Model.RemoveSequence(0, @ErrorText), @ErrorText);
+    SequenceAdded := False;
+    Result.ElapsedMilliseconds := GetTickCount64 - Started;
+    Notify(Progress, 'Generation finished; releasing model and cache objects...');
+  finally
+    TTVMRuntime.ObjectRelease(LogitsTensor);
+    TTVMRuntime.ObjectRelease(EmbedTensor);
+    if SequenceAdded then
+      Model.RemoveSequence(0, @ErrorText);
+    Model.Unload;
+    Tokenizer.Free;
+    ParamsInfo.Free;
+    Passport.Free;
+    ModelInfo.Free;
+    Lease.Free;
+    InterlockedExchange(Running, 0);
+  end;
+end;
+
+function QwenResultJSON(const Value: TQwenCudaResult): string;
+var
+  Obj: TJSONObject;
+  PromptIDs, GeneratedIDs: TJSONArray;
+  TokenID: Integer;
+begin
+  Obj := TJSONObject.Create;
+  try
+    Obj.AddPair('schema', 'crosspascal-qwen-cuda-run-v1');
+    Obj.AddPair('status', 'CUDA_GENERATION_COMPLETED');
+    Obj.AddPair('profile_id', Value.ProfileID);
+    Obj.AddPair('source_revision', Value.SourceRevision);
+    Obj.AddPair('device', 'cuda:0');
+    Obj.AddPair('device_name', Value.DeviceName);
+    Obj.AddPair('compute_version', Value.ComputeVersion);
+    Obj.AddPair('free_device_bytes_before_load', JSONUnsigned(Value.FreeDeviceBytes));
+    Obj.AddPair('total_device_bytes', JSONUnsigned(Value.TotalDeviceBytes));
+    Obj.AddPair('model_sha256', Value.ModelSHA256);
+    Obj.AddPair('params_sha256', Value.ParametersSHA256);
+    Obj.AddPair('model_metadata_sha256', Value.ModelMetadataSHA256);
+    Obj.AddPair('prompt', Value.Prompt);
+    PromptIDs := TJSONArray.Create;
+    Obj.AddPair('prompt_token_ids', PromptIDs);
+    for TokenID in Value.PromptTokenIDs do
+      PromptIDs.Add(TokenID);
+    GeneratedIDs := TJSONArray.Create;
+    Obj.AddPair('generated_token_ids', GeneratedIDs);
+    for TokenID in Value.GeneratedTokenIDs do
+      GeneratedIDs.Add(TokenID);
+    Obj.AddPair('answer', Value.Answer);
+    Obj.AddPair('stop_reason', Value.StopReason);
+    Obj.AddPair('elapsed_ms', JSONInteger(Int64(Value.ElapsedMilliseconds)));
+    Obj.AddPair('acceptance_claim', JSONBoolean(False));
+    Result := Obj.ToJSON;
+  finally
+    Obj.Free;
+  end;
+end;
+
+end.

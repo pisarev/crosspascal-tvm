@@ -1,0 +1,93 @@
+<?xml version='1.0' encoding='utf-8'?>
+<CONFIG>
+  <Package Version="5">
+    <PathDelim Value="/" />
+    <Name Value="crosspascal_crosstvm" />
+    <Type Value="RunTime" />
+    <Author Value="Yuriy Pisarev" />
+    <Description Value="TVM runtime bindings and CPU vision and Qwen consumers." />
+    <License Value="See the repository license and source notices." />
+    <Version Major="1" Minor="0" Release="0" />
+    <CompilerOptions>
+      <Version Value="11" />
+      <SearchPaths>
+        <OtherUnitFiles Value="../../pascal;../../../crosspascal-opencv/pascal;../../../crosspascal/rtl-algorithms/src" />
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)" />
+      </SearchPaths>
+      <Parsing>
+        <SyntaxOptions>
+          <SyntaxMode Value="Delphi" />
+        </SyntaxOptions>
+      </Parsing>
+      <Other>
+        <CustomOptions Value="-dTVM_LAZY_INIT" />
+      </Other>
+    </CompilerOptions>
+    <Files Count="14">
+      <Item1>
+        <Filename Value="../../pascal/BPETokenizer.pas" />
+        <UnitName Value="BPETokenizer" />
+      </Item1>
+      <Item2>
+        <Filename Value="../../pascal/CrossPascal.Json.pas" />
+        <UnitName Value="CrossPascal.Json" />
+      </Item2>
+      <Item3>
+        <Filename Value="../../pascal/CrossPascal.SHA256.pas" />
+        <UnitName Value="CrossPascal.SHA256" />
+      </Item3>
+      <Item4>
+        <Filename Value="../../pascal/CrossVision.Float16.pas" />
+        <UnitName Value="CrossVision.Float16" />
+      </Item4>
+      <Item5>
+        <Filename Value="../../pascal/CrossVision.ML.CpuVision.pas" />
+        <UnitName Value="CrossVision.ML.CpuVision" />
+      </Item5>
+      <Item6>
+        <Filename Value="../../pascal/CrossVision.ML.pas" />
+        <UnitName Value="CrossVision.ML" />
+      </Item6>
+      <Item7>
+        <Filename Value="../../pascal/DLPack.pas" />
+        <UnitName Value="DLPack" />
+      </Item7>
+      <Item8>
+        <Filename Value="../../pascal/QwenCuda.pas" />
+        <UnitName Value="QwenCuda" />
+      </Item8>
+      <Item9>
+        <Filename Value="../../pascal/QwenModel.pas" />
+        <UnitName Value="QwenModel" />
+      </Item9>
+      <Item10>
+        <Filename Value="../../pascal/QwenTokenizer.pas" />
+        <UnitName Value="QwenTokenizer" />
+      </Item10>
+      <Item11>
+        <Filename Value="../../pascal/TVM.pas" />
+        <UnitName Value="TVM" />
+      </Item11>
+      <Item12>
+        <Filename Value="../../pascal/TVM.RtDetr.pas" />
+        <UnitName Value="TVM.RtDetr" />
+      </Item12>
+      <Item13>
+        <Filename Value="../../pascal/TVM.Yolo11.pas" />
+        <UnitName Value="TVM.Yolo11" />
+      </Item13>
+      <Item14>
+        <Filename Value="../../pascal/CrossPascal.WinMemory.pas" />
+        <UnitName Value="CrossPascal.WinMemory" />
+      </Item14>
+    </Files>
+    <RequiredPkgs Count="1">
+      <Item1>
+        <PackageName Value="FCL" />
+      </Item1>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)" />
+    </UsageOptions>
+  </Package>
+</CONFIG>
