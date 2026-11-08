@@ -76,9 +76,9 @@ begin
   PythonPath := Root + '\runtime\gemma-python\python.exe';
   ScriptPath := Root + '\crosspascal-convert\source\pascalvision_convert\gemma_chat_worker.py';
   if not FileExists(PythonPath) then
-    raise Exception.Create('Extract the Gemma runtime asset into the SDK root first.');
+    raise Exception.Create('Extract the language runtime asset into the SDK root first.');
   if not FileExists(ScriptPath) then
-    raise Exception.Create('The Gemma worker is missing from the SDK.');
+    raise Exception.Create('The language worker is missing from the SDK.');
   FillChar(Security, SizeOf(Security), 0);
   Security.nLength := SizeOf(Security);
   Security.bInheritHandle := True;
@@ -243,8 +243,8 @@ end;
 function TGemmaProcess.HasExited(out Code: Cardinal): Boolean;
 begin
   Code := 0;
-  Result := (FProcess <> 0) and (WaitForSingleObject(FProcess, 0) = WAIT_OBJECT_0);
-  if Result and not GetExitCodeProcess(FProcess, Code) then RaiseLastOSError;
+  Result := (FProcess = 0) or (WaitForSingleObject(FProcess, 0) = WAIT_OBJECT_0);
+  if Result and (FProcess <> 0) and not GetExitCodeProcess(FProcess, Code) then RaiseLastOSError;
 end;
 
 destructor TGemmaProcess.Destroy;

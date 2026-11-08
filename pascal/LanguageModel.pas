@@ -109,7 +109,7 @@ begin
       LibraryName := TextField(Obj, 'library');
       if LibraryName = 'qwen2-cuda.dll' then Result.Architecture := 'qwen2';
       if (Result.Architecture <> 'qwen2') and (Result.Architecture <> 'gemma2') and
-        (Result.Architecture <> 'gemma3n') then
+        (Result.Architecture <> 'gemma3n') and (Result.Architecture <> 'qwen2_5_vl') then
           raise Exception.Create('This model architecture needs a different runtime adapter.');
       Result.ContextTokens := StrToIntDef(TextField(Obj, 'context'), 0);
       if Result.ContextTokens = 0 then
@@ -120,7 +120,13 @@ begin
         Result.Device := 'CUDA';
       Result.Experimental := Result.Architecture <> 'qwen2';
       Result.SupportsImages := False;
-      if (Result.Architecture = 'gemma3n') and (TextField(Obj, 'backend') = 'TVM CUDA W8A32') and
+      if (Result.Architecture = 'qwen2_5_vl') and
+        (TextField(Obj, 'schema') = 'crosspascal.qwen2_5_vl.v1') and
+        (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32') then
+          Result.SupportsImages := True;
+      if (Result.Architecture = 'gemma3n') and
+        ((TextField(Obj, 'backend') = 'TVM CUDA W8A32') or
+        (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32')) and
         (TextField(Obj, 'vision_manifest') = 'vision.json') then
           Result.SupportsImages := FileExists(IncludeTrailingPathDelimiter(Bundle) + 'vision.json');
       Result.ImageExplanation := 'This bundle accepts text only. Images need a vision encoder and a compatible multimodal runtime. Your image will not be sent or silently ignored.';
