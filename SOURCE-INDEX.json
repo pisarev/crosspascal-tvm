@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-013",
+  "release_id": "early-access-014",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -62,8 +62,8 @@
     },
     {
       "path": "pascal/CrossPascal.SHA256.pas",
-      "bytes": 3885,
-      "sha256": "3252e0423267769cde4fa1ae5dc5edd0a1fac013bbb280b988e554fba78f9011"
+      "bytes": 4079,
+      "sha256": "6c1fc3d98b0b2fb96a8c8c71aaff1eaa108415e2efb9620924541e504773e28d"
     },
     {
       "path": "pascal/CrossPascal.WinMemory.pas",

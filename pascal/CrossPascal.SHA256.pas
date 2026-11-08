@@ -22,7 +22,7 @@ function SHA256Bytes(const Bytes: TBytes): UnicodeString;
 
 implementation
 
-{$IFDEF FPC}
+{$IF DEFINED(FPC) OR DEFINED(MSWINDOWS)}
 function BCryptOpenAlgorithmProvider(out Algorithm: Pointer; AlgorithmID, ProviderName: PWideChar;
   Flags: Cardinal): LongInt; stdcall; external 'bcrypt.dll';
 function BCryptGetProperty(Handle: Pointer; PropertyName: PWideChar; Output: PByte;
@@ -50,7 +50,7 @@ uses
 {$ENDIF}
 
 function SHA256Stream(const Stream: TStream): UnicodeString;
-{$IFDEF FPC}
+{$IF DEFINED(FPC) OR DEFINED(MSWINDOWS)}
 const
   Hex: UnicodeString = '0123456789abcdef';
 var
@@ -61,7 +61,7 @@ var
   Count, I: Integer;
 {$ENDIF}
 begin
-  {$IFDEF FPC}
+  {$IF DEFINED(FPC) OR DEFINED(MSWINDOWS)}
   Check(BCryptOpenAlgorithmProvider(Algorithm, 'SHA256', nil, 0), 'provider initialization');
   try
     Check(BCryptGetProperty(Algorithm, 'ObjectLength', PByte(@ObjectSize), SizeOf(ObjectSize),
