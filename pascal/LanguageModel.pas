@@ -2,7 +2,7 @@
 {                                                                            }
 { LanguageModel                                                              }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev                                             }
+{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
 {                                                                            }
 { ************************************************************************** }
 
@@ -13,8 +13,7 @@ unit LanguageModel;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF},
-  QwenCuda, GemmaProcess;
+  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, QwenCuda, GemmaProcess;
 
 type
   TLanguageOptions = TQwenGenerationOptions;

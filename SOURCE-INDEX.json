@@ -53,37 +53,37 @@
     {
       "path": "pascal/BPETokenizer.pas",
       "bytes": 5254,
-      "sha256": "6648fd2ba41039b92c50dd43f75dda8825a3aeea56216475c2903ce419c42f17"
+      "sha256": "923e639d278c5a57d61d0b333c14c12e24e8c320dd5a94329a670058ee5ff8b3"
     },
     {
       "path": "pascal/CrossPascal.Json.pas",
       "bytes": 5448,
-      "sha256": "f635210e36bcaa4232b8c065801371290ee6e4d4b52783fd0733e34ad5da3f31"
+      "sha256": "44dac14190d0f8b43f5597bf78994f269608eadb73de6783e0c88145844a04f3"
     },
     {
       "path": "pascal/CrossPascal.SHA256.pas",
       "bytes": 4079,
-      "sha256": "6c1fc3d98b0b2fb96a8c8c71aaff1eaa108415e2efb9620924541e504773e28d"
+      "sha256": "97fc32b3097c9b1fb67c5014a36dc3562f76cb22d5702921d27a5db1c6bbcf04"
     },
     {
       "path": "pascal/CrossPascal.WinMemory.pas",
       "bytes": 1087,
-      "sha256": "019a387aa97bcc99c271549405da4810f8b2ff45bb040bfdce637f695a914d48"
+      "sha256": "5cbe1724bfe20f5c0e03347c56f146fb97dca0d57cebae41afd1eeebd92ca8db"
     },
     {
       "path": "pascal/CrossVision.Float16.pas",
       "bytes": 4815,
-      "sha256": "87fead28c46bfbe81502a44dab43f4ac906124ed50cb3c8935cf7175caeccdca"
+      "sha256": "a9cf9fe33d3b42d5b53522354035b45ad829ac3f9653bdff8dec0f82d9bd658e"
     },
     {
       "path": "pascal/CrossVision.ML.CpuVision.pas",
       "bytes": 35746,
-      "sha256": "0cdc9076936abd0a61bcf8ee397c8b86cb0d908e18d0dee8eb3ddbe08657489e"
+      "sha256": "b5a8097c584a6cd9d85fc47b6ed22c16e3d6175c7d78e4219d5dc3de62f2adfc"
     },
     {
       "path": "pascal/CrossVision.ML.pas",
       "bytes": 6151,
-      "sha256": "2750dcffef155f02bdccf394e20036ec3465b7684624f08d7f3d939c741945cc"
+      "sha256": "1855e0eb6d38bf3197747d78f1e6264123a6b4bfb663c4dd01df76d781caa363"
     },
     {
       "path": "pascal/DLPack.pas",
@@ -93,42 +93,42 @@
     {
       "path": "pascal/GemmaProcess.pas",
       "bytes": 9059,
-      "sha256": "6ded2cdc006d83b5c8842a57debb8b18d8ad3f0f33f24eb7a116416caa806606"
+      "sha256": "2e60b75ab55e19d85c329cb66edf30b2fa2bcda82870a9a79bc11e26de57abd9"
     },
     {
       "path": "pascal/LanguageModel.pas",
-      "bytes": 9690,
-      "sha256": "405d032b34294177e468b41096d4f983ae3c97f94c927f2399cf60b87f254898"
+      "bytes": 9688,
+      "sha256": "837458de0cd9d511aa4703ebc22d3bb4f428709985a706e77694e8729158fd1f"
     },
     {
       "path": "pascal/QwenCuda.pas",
-      "bytes": 52903,
-      "sha256": "1bb926bf2b9a8048276a8408dc90c3f1e8141cabaf03b4b2b117b62e00a9b27a"
+      "bytes": 52939,
+      "sha256": "5e3d0ac08670f495ad8f6ff595fe926ecc5cb5e684494119cea78353c9d5597a"
     },
     {
       "path": "pascal/QwenModel.pas",
       "bytes": 17600,
-      "sha256": "598a7ffd2d38b26c32abbd1556c7bafbecd76c6a8af082d4f01f62872821be3b"
+      "sha256": "7d457047b44acb593de4ba3c73b53bff962bea2835d62c2d86f3502705bd431c"
     },
     {
       "path": "pascal/QwenTokenizer.pas",
       "bytes": 12652,
-      "sha256": "7544e52de1606a9d7e936f75be2c3b2c069682973c98c01e2dae51286d14f3c4"
+      "sha256": "46a702cd800774d105608acb80a6c05749c76d3582b3eaeb23c3efea08be49c0"
     },
     {
       "path": "pascal/TVM.pas",
       "bytes": 95291,
-      "sha256": "24e12836701997753f3684839ac5adbde7932bc08ac683fb83d09dc12f56dc21"
+      "sha256": "8a3b870cd34b380106758eb57c13769c33356b150ed6bc94b38fd3c968606ecd"
     },
     {
       "path": "pascal/TVM.RtDetr.pas",
       "bytes": 20550,
-      "sha256": "d2b87738cc87ad0a7bb98b8837a2a1a1979c1c105a7d2ee81f75dab4aee9b742"
+      "sha256": "1213960fd8d1a95dc6c023cd0d1e89c5ed0edf61abf897efdf90699265e3cdc1"
     },
     {
       "path": "pascal/TVM.Yolo11.pas",
       "bytes": 70598,
-      "sha256": "5dbc1eef1947ebf7f862aceb0b2afe28c082f61584ca17478a82060c38f69af1"
+      "sha256": "7d9332c148d32d381426893708166f0868e375faa755f1775fc51a3244c911d6"
     },
     {
       "path": "README.md",
@@ -210,5 +210,7 @@
       "bytes": 13549,
       "sha256": "e36b010d92dd4a3b209c0e9fffb8492f492278c9bb65827a7b0dcee8a3fbd4a0"
     }
-  ]
+  ],
+  "source_revision": "controls-format-20261110",
+  "documentation_revision": "maintenance-20261110"
 }

@@ -2,7 +2,7 @@
 {                                                                            }
 { QwenCuda                                                                   }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev                                             }
+{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
 {                                                                            }
 { ************************************************************************** }
 
@@ -118,7 +118,8 @@ implementation
 uses
   {$IFDEF FPC}Windows, Classes, Generics.Collections, Math, {$ELSE}
   Winapi.Windows, System.Classes, System.Generics.Collections, System.Math, {$ENDIF}
-  {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.Json, CrossPascal.SHA256, DLPack, TVM, QwenModel, QwenTokenizer;
+  {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.Json, CrossPascal.SHA256,
+  DLPack, TVM, QwenModel, QwenTokenizer;
 
 type
   TQwenCudaProfile = record
@@ -164,20 +165,22 @@ const
   QwenProfiles: array[0..1] of TQwenCudaProfile = (
     (
       ModelKey: 'qwen2.5-0.5b';
-    ProfileID: 'qwen2.5-0.5b-cuda-f32-64-v1';
-    SourceRepository: QwenSourceRepository;
-    SourceRevision: QwenSourceRevision;
-    SourceTreeSHA256: QwenSourceTreeSHA256;
-    HiddenSize: 896; IntermediateSize: 4864; LayerCount: 24;
-    AttentionHeads: 14; KVHeads: 2; HeadSize: 64),
+      ProfileID: 'qwen2.5-0.5b-cuda-f32-64-v1';
+      SourceRepository: QwenSourceRepository;
+      SourceRevision: QwenSourceRevision;
+      SourceTreeSHA256: QwenSourceTreeSHA256;
+      HiddenSize: 896; IntermediateSize: 4864; LayerCount: 24;
+      AttentionHeads: 14; KVHeads: 2; HeadSize: 64
+    ),
     (
       ModelKey: 'qwen2.5-1.5b';
-    ProfileID: 'qwen2.5-1.5b-cuda-f32-64-v1';
-    SourceRepository: 'Qwen/Qwen2.5-1.5B-Instruct';
-    SourceRevision: '989aa7980e4cf806f80c7fef2b1adb7bc71aa306';
-    SourceTreeSHA256: '5f0180b3ad3b8652860444471fe9e2dd2e5ce325e5e5dccd2be7190ef437cf0d';
-    HiddenSize: 1536; IntermediateSize: 8960; LayerCount: 28;
-    AttentionHeads: 12; KVHeads: 2; HeadSize: 128)
+      ProfileID: 'qwen2.5-1.5b-cuda-f32-64-v1';
+      SourceRepository: 'Qwen/Qwen2.5-1.5B-Instruct';
+      SourceRevision: '989aa7980e4cf806f80c7fef2b1adb7bc71aa306';
+      SourceTreeSHA256: '5f0180b3ad3b8652860444471fe9e2dd2e5ce325e5e5dccd2be7190ef437cf0d';
+      HiddenSize: 1536; IntermediateSize: 8960; LayerCount: 28;
+      AttentionHeads: 12; KVHeads: 2; HeadSize: 128
+    )
   );
   RuntimeNames: array[0..3] of string = (
     'tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll', 'tvm_runtime_cuda.dll');
@@ -851,14 +854,14 @@ end;
 procedure ValidateQwenGenerationOptions(const Options: TQwenGenerationOptions);
 begin
   Require(Options.MaxNewTokens >= 0, 'Max new tokens must be 0 (Auto) or a positive whole number.');
-  Require(not IsNan(Options.Temperature) and (Options.Temperature >= 0.01)
-    and (Options.Temperature <= 2), 'Temperature must be between 0.01 and 2.');
+  Require(not IsNan(Options.Temperature) and (Options.Temperature >= 0.01) and
+    (Options.Temperature <= 2), 'Temperature must be between 0.01 and 2.');
   Require(not IsNan(Options.TopP) and (Options.TopP > 0) and (Options.TopP <= 1),
     'Top-P must be greater than 0 and at most 1.');
   Require((Options.TopK >= 1) and (Options.TopK <= QwenMaxTopK),
     Format('Top-K must be a whole number between 1 and %d.', [QwenMaxTopK]));
-  Require(not IsNan(Options.RepetitionPenalty) and (Options.RepetitionPenalty >= 1)
-    and (Options.RepetitionPenalty <= 2), 'Repetition penalty must be between 1 and 2.');
+  Require(not IsNan(Options.RepetitionPenalty) and (Options.RepetitionPenalty >= 1) and
+    (Options.RepetitionPenalty <= 2), 'Repetition penalty must be between 1 and 2.');
   Require((Options.Seed >= -1) and (Options.Seed <= Int64(High(Cardinal))),
     'Seed must be blank (random) or a whole number between 0 and 4294967295.');
 end;

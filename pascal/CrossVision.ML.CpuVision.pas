@@ -2,7 +2,7 @@
 {                                                                            }
 { CrossVision.ML.CpuVision                                                   }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev                                             }
+{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
 {                                                                            }
 { ************************************************************************** }
 
@@ -68,8 +68,8 @@ uses
   {$IFDEF FPC}Windows, Math, Types, Generics.Collections, Generics.Defaults, {$ELSE}
   Winapi.Windows, System.Math, System.Types, System.Generics.Collections,
   System.Generics.Defaults, {$ENDIF}
-  {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.SHA256, DLPack, TVM, TVM.Yolo11, TVM.RtDetr,
-  CrossVision.Geometry.Types;
+  {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.SHA256, DLPack, TVM, TVM.Yolo11,
+  TVM.RtDetr, CrossVision.Geometry.Types;
 
 const
   RuntimeNames: array[0..2] of string = ('tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll');
