@@ -97,8 +97,8 @@
     },
     {
       "path": "pascal/CrossVision.ML.CpuVision.pas",
-      "bytes": 37024,
-      "sha256": "04c56b0cf437af3ac8f97dab0f60b0950551ebbd0accb009b978877f38b2e976"
+      "bytes": 37022,
+      "sha256": "0291b68fbfcf14244df48790a41854f614da79bc15f1dccc5fa709e0ee6c827c"
     },
     {
       "path": "pascal/CrossVision.ML.pas",

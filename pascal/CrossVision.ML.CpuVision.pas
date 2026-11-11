@@ -716,7 +716,7 @@ begin
   MemoryStatus.dwLength := SizeOf(MemoryStatus);
   Require(GlobalMemoryStatusEx(MemoryStatus), 'Cannot read available physical memory.');
   Require(MemoryStatus.ullAvailPhys >= UInt64(1024) * 1024 * 1024,
-    'At least 1 GiB of free physical memory is required before loading a CPU model.');
+    'At least 1 GiB of free system RAM is required before loading a vision model.');
   ManifestLease := nil;
   ModelLease := nil;
   SidecarLease := nil;
