@@ -57,7 +57,9 @@ var
   Layout: TJSONArray;
   Hashes, Weight: TJSONObject;
   Shape: TArray<Int64>;
-  Name: string;
+  Name, DataType: string;
+  Code: TDLDataTypeCode;
+  Bits: Byte;
   Offset, ExpectedOffset, Bytes, Count: Int64;
   CacheBytes, Free, Reserve: UInt64;
   I: Integer;
@@ -115,11 +117,22 @@ begin
     Count := TensorElements(Shape);
     RequireCpu((Length(Shape) > 0) and (Count <= High(Int64) div SizeOf(Single)) and
       (Offset = ExpectedOffset), 'Invalid model weight layout: ' + Name);
-    Bytes := Count * SizeOf(Single);
+    DataType := ModelText(Weight.GetValue('dtype'));
+    Code := kDLFloat;
+    Bits := 32;
+    if DataType = 'int8' then
+    begin
+      RequireCpu(Cuda <> nil, 'The int8 token graph requires CUDA');
+      Code := kDLInt;
+      Bits := 8;
+    end
+    else
+      RequireCpu((DataType = '') or (DataType = 'float32'), 'Unknown weight data type: ' + DataType);
+    Bytes := Count * (Bits div 8);
     if Cuda = nil then
       FWeights[I] := MappedFloatTensor(FWeightData.AtOffset(Offset, Bytes), Shape)
     else
-      FWeights[I] := DeviceTensor(Shape, kDLFloat, 32, FWeightData.AtOffset(Offset, Bytes), FDevice);
+      FWeights[I] := DeviceTensor(Shape, Code, Bits, FWeightData.AtOffset(Offset, Bytes), FDevice);
     Inc(ExpectedOffset, Bytes);
   end;
   RequireCpu(ExpectedOffset = FWeightData.Size, 'Unexpected model weight file size');

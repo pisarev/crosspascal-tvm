@@ -47,7 +47,7 @@ type
     FLastFeatures: TArray<Single>;
   public
     constructor Create(const Folder, CVLibrary: string; const HiddenSize: Integer;
-      const Cuda: TCudaExecution = nil);
+      const Cuda: TCudaExecution = nil; const ManifestName: string = 'vision.json');
     destructor Destroy; override;
     function EndEmbedding(const Token: Integer): TArray<Single>;
     function Encode(const FileName: string; const ShouldStop: TQwenStopRequested; out Hash: string;
@@ -90,7 +90,7 @@ begin
 end;
 
 constructor TGemma3nVision.Create(const Folder, CVLibrary: string; const HiddenSize: Integer;
-  const Cuda: TCudaExecution);
+  const Cuda: TCudaExecution; const ManifestName: string);
 var
   Data, LayoutData: TJSONValue;
   Manifest, Row: TJSONObject;
@@ -103,7 +103,7 @@ begin
   inherited Create;
   FCVLibrary := CVLibrary;
   FHiddenSize := HiddenSize;
-  Data := ReadModelJSON(BundleMember(Folder, 'vision.json'));
+  Data := ReadModelJSON(BundleMember(Folder, ManifestName));
   try
     Manifest := ModelObject(Data, 'vision manifest');
     FBackend := ModelText(Manifest.GetValue('backend'));

@@ -14,7 +14,7 @@ interface
 
 uses
   {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, QwenCuda, QwenModel, GemmaTokenizer,
-  TVM.TokenGraph;
+  TVM.CudaExecution, TVM.TokenGraph;
 
 type
   TGemma2Cpu = class
@@ -26,6 +26,11 @@ type
     FChunk: Integer;
     FBos: Integer;
     FStopIDs: TArray<Integer>;
+    FCuda: TCudaExecution;
+    FBackend: string;
+    FDevice: string;
+    function GenerateInContext(const Prompt: string; const Options: TQwenGenerationOptions;
+      const Progress, OnText: TQwenProgress; const ShouldStop: TQwenStopRequested): string;
   public
     constructor Create(const Folder, RuntimeRoot: string; const Progress: TQwenProgress);
     destructor Destroy; override;
@@ -62,29 +67,53 @@ var
   Error: TTVMCallError;
   I: Integer;
   NativeBundle: Boolean;
+  Target, LibraryName, PrefillLibrary: string;
 begin
   inherited Create;
-  Data := ReadModelJSON(BundleMember(Folder, 'model.json'));
+  Data := ReadLanguageManifest(Folder);
   try
     Model := ModelObject(Data, 'Gemma 2 manifest');
+    Target := ModelText(Model.GetValue('target'));
+    LibraryName := ModelText(Model.GetValue('library'));
     RequireCpu((ModelText(Model.GetValue('model_type')) = 'gemma2') and
-      (ModelText(Model.GetValue('target')) = 'cpu') and
-      (ModelText(Model.GetValue('library')) = 'gemma2-cpu.dll'), 'Expected a Gemma 2 CPU bundle');
+      ((Target = 'cpu') or (Target = 'cuda')) and
+      (((Target = 'cpu') and (LibraryName = 'gemma2-cpu.dll')) or
+        ((Target = 'cuda') and (LibraryName <> ''))), 'Expected a Gemma 2 TVM bundle');
+    FDevice := UpperCase(Target);
+    FBackend := 'TVM LLVM CPU FP32 (experimental Gemma 2)';
     FContext := ModelInt(Model.GetValue('context_window_size'), 'context window');
     FChunk := ModelInt(Model.GetValue('prefill_chunk_size'), 'prefill chunk');
     FBos := ModelInt(Model.GetValue('bos_token_id'), 'BOS token');
     RequireCpu((FContext > 1) and (FContext <= 131072) and (FChunk > 0) and (FChunk <= FContext),
-      'Invalid Gemma 2 CPU context');
+      'Invalid Gemma 2 context');
     EOS := ModelArray(Model.GetValue('eos_token_id'), 'EOS tokens');
     SetLength(FStopIDs, EOS.Count);
     for I := 0 to High(FStopIDs) do FStopIDs[I] := ModelInt(EOS.Items[I], 'EOS token');
     NativeBundle := ModelText(Model.GetValue('schema')) = 'crosspascal.gemma2.text.v1';
-    if Assigned(Progress) then Progress('Verifying the Gemma 2 CPU bundle...');
+    if Target = 'cuda' then
+    begin
+      RequireCpu(NativeBundle and (ModelText(Model.GetValue('backend')) = 'TVM CUDA W8A32'),
+        'Invalid Gemma 2 CUDA bundle');
+      FCuda := TCudaExecution.Create;
+      FCuda.RequireArchitecture(ModelText(Model.GetValue('cuda_arch')));
+      FBackend := 'TVM CUDA W8A32';
+    end;
+    if Assigned(Progress) then Progress('Verifying the Gemma 2 ' + FDevice + ' bundle...');
     QwenCuda.InitializeRuntime(IncludeTrailingPathDelimiter(RuntimeRoot) +
-      'crosspascal-tvm\runtime\windows-x64-cuda\', False);
+      'crosspascal-tvm\runtime\windows-x64-cuda\', FCuda <> nil);
     if NativeBundle then
-      FNative := TTokenGraph.Create(Folder, 'gemma2-cpu.dll', 'gemma2-prefill-cpu.dll',
-        Model, FContext, FChunk, TokenizerFiles)
+    begin
+      PrefillLibrary := ModelText(Model.GetValue('prefill_library'));
+      if Target = 'cpu' then
+        RequireCpu(PrefillLibrary = 'gemma2-prefill-cpu.dll', 'Invalid Gemma 2 CPU prefill library');
+      if FCuda <> nil then FCuda.Enter;
+      try
+        FNative := TTokenGraph.Create(Folder, LibraryName, PrefillLibrary,
+          Model, FContext, FChunk, TokenizerFiles, FCuda);
+      finally
+        if FCuda <> nil then FCuda.Leave;
+      end;
+    end
     else begin
       Hashes := TJSONObject.Create;
       try
@@ -105,18 +134,43 @@ begin
   else
     RequireCpu(FTokenizer.TokenCount = FNative.Vocabulary,
       'Gemma 2 tokenizer vocabulary differs from the graph');
-  if Assigned(Progress) then Progress('Model loaded on CPU through TVM');
+  if Assigned(Progress) then Progress('Model loaded on ' + FDevice + ' through TVM');
 end;
 
 destructor TGemma2Cpu.Destroy;
 begin
   FModel.Unload;
-  FNative.Free;
-  FTokenizer.Free;
-  inherited;
+  try
+    if (FCuda <> nil) and (FNative <> nil) then
+    begin
+      FCuda.Enter;
+      try
+        FNative.Free;
+      finally
+        FCuda.Leave;
+      end;
+    end
+    else
+      FNative.Free;
+  finally
+    FCuda.Free;
+    FTokenizer.Free;
+    inherited;
+  end;
 end;
 
 function TGemma2Cpu.Generate(const Prompt: string; const Options: TQwenGenerationOptions;
+  const Progress, OnText: TQwenProgress; const ShouldStop: TQwenStopRequested): string;
+begin
+  if FCuda <> nil then FCuda.Enter;
+  try
+    Result := GenerateInContext(Prompt, Options, Progress, OnText, ShouldStop);
+  finally
+    if FCuda <> nil then FCuda.Leave;
+  end;
+end;
+
+function TGemma2Cpu.GenerateInContext(const Prompt: string; const Options: TQwenGenerationOptions;
   const Progress, OnText: TQwenProgress; const ShouldStop: TQwenStopRequested): string;
 const
   EffortBudget: array[TQwenAnswerEffort] of Integer = (0, 128, 512, 1024);
@@ -180,7 +234,7 @@ begin
   First := 0;
   Position := 0;
   Answer := '';
-  if Assigned(Progress) then Progress('Processing the prompt on CPU...');
+  if Assigned(Progress) then Progress('Processing the prompt on ' + FDevice + '...');
   if FNative = nil then
     RequireTVM(FModel.CreateCache(1, FContext, FChunk, 16, @Error), @Error)
   else
@@ -263,7 +317,12 @@ begin
   try
     Report.AddPair('text', Answer);
     Report.AddPair('stop', Reason);
-    Report.AddPair('backend', 'TVM LLVM CPU FP32 (experimental Gemma 2)');
+    Report.AddPair('backend', FBackend);
+    if FCuda <> nil then
+    begin
+      Report.AddPair('device_name', FCuda.DeviceName);
+      Report.AddPair('compiled_arch', FCuda.Architecture);
+    end;
     Report.AddPair('experimental', JSONBoolean(True));
     Report.AddPair('model_reused', JSONBoolean(True));
     Report.AddPair('prompt_tokens', JSONInteger(Length(Tokens)));

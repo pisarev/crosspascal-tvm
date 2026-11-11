@@ -39,6 +39,9 @@ type
 
   TCpuVisionResult = record
     ProfileID: string;
+    Device: string;
+    DeviceName: string;
+    CudaArchitecture: string;
     SourceSHA256: string;
     ModelSHA256: string;
     InputSHA256: string;
@@ -60,6 +63,9 @@ function LoadCpuVisionProfiles(const CatalogPath: string): TArray<TCpuVisionProf
 function RunCpuVision(const Profile: TCpuVisionProfile;
   const BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256: string; const Image: IMat;
   const Progress: TCpuVisionProgress = nil; const AuditDirectory: string = ''): TCpuVisionResult;
+function RunVision(const Profile: TCpuVisionProfile;
+  const BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256: string; const Image: IMat;
+  const Progress: TCpuVisionProgress = nil): TCpuVisionResult;
 procedure WriteCpuVisionReport(const Path, JSONText: string);
 
 implementation
@@ -69,15 +75,15 @@ uses
   Winapi.Windows, System.Math, System.Types, System.Generics.Collections,
   System.Generics.Defaults, {$ENDIF}
   {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.SHA256, DLPack, TVM, TVM.Yolo11,
-  TVM.RtDetr, CrossVision.Geometry.Types;
+  TVM.RtDetr, CrossVision.Geometry.Types, QwenCuda, TVM.CudaExecution;
 
 const
-  RuntimeNames: array[0..2] of string = ('tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll');
-  RuntimeHashes: array[0..2] of string = (
+  RuntimeNames: array[0..3] of string = ('tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll', 'tvm_runtime_cuda.dll');
+  RuntimeHashes: array[0..3] of string = (
     '2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913',
     '45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1',
-    '4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee');
-  DLLSearchFlags = $00000100 or $00001000;
+    '4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee',
+    '4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b');
   LightSqueezeNetSHA256 = '770b0f3c8623e18bf58b53754d710051b4c268248422142980a132bbe6dfe908';
 
 type
@@ -91,9 +97,9 @@ type
   end;
 
 var
+  VisionRuntimeLock: TRTLCriticalSection;
   LoadedRuntimeDirectory: string;
-  RuntimeInitializationFailed: Boolean;
-  RuntimeLeases: array[0..2] of TFileStream;
+  RuntimeLeases: array[0..3] of TFileStream;
 
 procedure Require(const Condition: Boolean; const MessageText: string);
 begin
@@ -302,72 +308,42 @@ begin
   end;
 end;
 
-function ModulePath(const Handle: HMODULE): string;
+procedure InitializeVisionRuntime(const RuntimeDirectory: string; const NeedCuda: Boolean);
 var
-  Buffer: array[0..32767] of Char;
-  Count: DWORD;
-begin
-  Count := GetModuleFileNameW(Handle, @Buffer[0], Length(Buffer));
-  Require((Count > 0) and (Count < DWORD(Length(Buffer))), 'Cannot identify a loaded runtime.');
-  SetString(Result, Buffer, Count);
-  Result := ExpandFileName(Result);
-end;
-
-procedure InitializeCpuRuntime(const RuntimeDirectory: string);
-var
-  Directory, Path: string;
-  Handles: array[0..2] of HMODULE;
-  Version: TTVMFFIVersion;
-  I: Integer;
+  Directory: string;
+  Lease: TFileStream;
+  I, Last: Integer;
 begin
   Directory := IncludeTrailingPathDelimiter(ExpandFileName(RuntimeDirectory));
-  Require(not RuntimeInitializationFailed, 'Runtime initialization failed earlier. Restart the application.');
-  if LoadedRuntimeDirectory <> '' then
-  begin
-    Require(SameText(LoadedRuntimeDirectory, Directory),
-      'Restart the application before selecting a different TVM runtime.');
-    Exit;
+  EnterCriticalSection(VisionRuntimeLock);
+  try
+    if LoadedRuntimeDirectory <> '' then
+      Require(SameText(LoadedRuntimeDirectory, Directory),
+        'Restart the application before selecting a different TVM runtime.');
+    LoadedRuntimeDirectory := Directory;
+    Last := 2;
+    if NeedCuda then Last := 3;
+    for I := 0 to Last do
+      if RuntimeLeases[I] = nil then
+      begin
+        Lease := TFileStream.Create(Directory + RuntimeNames[I], fmOpenRead or fmShareDenyWrite);
+        try
+          Require(SameText(HashStream(Lease), RuntimeHashes[I]),
+            'Runtime SHA-256 does not match the supplied family: ' + RuntimeNames[I]);
+          RuntimeLeases[I] := Lease;
+          Lease := nil;
+        finally
+          Lease.Free;
+        end;
+      end;
+    QwenCuda.InitializeRuntime(Directory, NeedCuda);
+  finally
+    LeaveCriticalSection(VisionRuntimeLock);
   end;
-  Require((TTVMRuntime.TModule.Handle = 0) and (TTVMRuntime.TModule.RuntimeHandle = 0),
-    'TVM was initialized before the selected runtime was checked.');
-  RuntimeInitializationFailed := True;
-  for I := 0 to High(RuntimeNames) do
-  begin
-    Require(GetModuleHandleW(PWideChar(RuntimeNames[I])) = 0,
-      'A TVM DLL was loaded outside the explicit runtime loader.');
-    Path := Directory + RuntimeNames[I];
-    RuntimeLeases[I] := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
-    Require(SameText(HashStream(RuntimeLeases[I]), RuntimeHashes[I]),
-      'Runtime SHA-256 does not match the supplied family: ' + RuntimeNames[I]);
-  end;
-  for I := 0 to High(RuntimeNames) do
-  begin
-    Path := Directory + RuntimeNames[I];
-    Handles[I] := LoadLibraryExW(PWideChar(Path), 0, DLLSearchFlags);
-    Require(Handles[I] <> 0, 'Cannot load ' + RuntimeNames[I] + ': ' + SysErrorMessage(GetLastError));
-    Require(SameText(ModulePath(Handles[I]), Path), 'A TVM DLL resolved outside the selected directory.');
-  end;
-  TTVMRuntime.TModule.Handle := Handles[0];
-  TTVMRuntime.TModule.RuntimeHandle := Handles[1];
-  TTVMRuntime.TModule.ExtraRuntimeHandle := Handles[2];
-  TTVMRuntime.TModule.CudaRuntimeHandle := 0;
-  TTVMRuntime.TModule.LibraryPath := Directory;
-  TTVMRuntime.TModule.LibraryName := Directory + RuntimeNames[1];
-  TTVMRuntime.TModule.Initialize(Handles[0], True);
-  TTVMBackend.TModule.Handle := Handles[1];
-  TTVMBackend.TModule.Initialize(Handles[1], True);
-  TTVMRuntime.TModule.ResolveGlobals;
-  Require(Assigned(TTVMRuntime.TModule.TVMFFIGetVersion), 'Missing TVM FFI version function.');
-  TTVMRuntime.TModule.TVMFFIGetVersion(Version);
-  Require((Version.Major = 0) and (Version.Minor = 1) and (Version.Patch = 14),
-    Format('Unexpected TVM FFI C ABI %d.%d.%d; this runtime requires 0.1.14.',
-      [Version.Major, Version.Minor, Version.Patch]));
-  LoadedRuntimeDirectory := Directory;
-  RuntimeInitializationFailed := False;
 end;
 
 procedure ValidateManifest(const Root: TJSONObject; const Profile: TCpuVisionProfile;
-  out ModelName, ModelHash, SourceHash, InputName: string);
+  const AllowCuda: Boolean; out ModelName, ModelHash, SourceHash, InputName, Device, CudaArch: string);
 var
   Artifact, IO, Provenance, Vision: TJSONObject;
   Shape: TJSONArray;
@@ -380,9 +356,12 @@ begin
     'Bundle adapter does not match the selected profile.');
   Require(IntegerField(Root, 'adapter_api_version') = 1, 'Unsupported adapter API version.');
   Artifact := ObjectField(Root, 'artifact');
+  Device := TextField(Artifact, 'device');
   Require((TextField(Artifact, 'os') = 'windows') and (TextField(Artifact, 'arch') = 'x86_64') and
-    (TextField(Artifact, 'device') = 'cpu') and (TextField(Artifact, 'dtype') = 'float32'),
-    'This example requires a Windows x64 CPU float32 bundle.');
+    (TextField(Artifact, 'dtype') = 'float32'), 'Expected a Windows x64 float32 bundle.');
+  Require((Device = 'cpu') or (AllowCuda and (Device = 'cuda')), 'The bundle device is not supported here.');
+  CudaArch := '';
+  if Device = 'cuda' then CudaArch := TextField(Artifact, 'cuda_arch');
   Require(TextField(Artifact, 'format') = 'so', 'Expected a TVM shared-library artifact.');
   Require(TextField(Artifact, 'entry') = 'main', 'Expected the main model entry.');
   ModelName := TextField(Artifact, 'file');
@@ -610,18 +589,23 @@ var
   Classes, Detections, Box, RuntimeFiles: TJSONArray;
   Item: TClassification;
   DetectionItem: TDetection;
-  I: Integer;
+  I, Last: Integer;
 begin
   Root := TJSONObject.Create;
   try
-    Root.AddPair('schema', 'crosspascal.cpu-vision-result.v1');
-    Root.AddPair('status', 'CPU_INFERENCE_COMPLETED');
+    Root.AddPair('schema', 'crosspascal.' + Value.Device + '-vision-result.v1');
+    Root.AddPair('status', UpperCase(Value.Device) + '_INFERENCE_COMPLETED');
     Root.AddPair('release_acceptance', JSONBoolean(False));
     Root.AddPair('profile', Profile.ID);
     Root.AddPair('profile_catalog_sha256', Profile.CatalogSHA256);
     Root.AddPair('task_kind', Profile.TaskKind);
-    Root.AddPair('device', 'cpu');
+    Root.AddPair('device', Value.Device);
     Root.AddPair('device_id', JSONInteger(0));
+    if Value.Device = 'cuda' then
+    begin
+      Root.AddPair('device_name', Value.DeviceName);
+      Root.AddPair('cuda_arch', Value.CudaArchitecture);
+    end;
     Root.AddPair('source_sha256', Value.SourceSHA256);
     Root.AddPair('model_sha256', Value.ModelSHA256);
     Root.AddPair('manifest_sha256', Value.ManifestSHA256);
@@ -638,7 +622,9 @@ begin
       Root.AddPair('inference_audit', ParseObject(Value.AuditJSONText));
     RuntimeFiles := TJSONArray.Create;
     Root.AddPair('runtime_files', RuntimeFiles);
-    for I := 0 to High(RuntimeNames) do
+    Last := 2;
+    if Value.Device = 'cuda' then Last := 3;
+    for I := 0 to Last do
     begin
       Row := TJSONObject.Create;
       Row.AddPair('file', RuntimeNames[I]);
@@ -687,16 +673,22 @@ begin
       Result := A.ClassId - B.ClassId;
 end;
 
-function RunCpuVision(const Profile: TCpuVisionProfile;
+function RunVisionBundle(const Profile: TCpuVisionProfile;
   const BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256: string; const Image: IMat;
-  const Progress: TCpuVisionProgress; const AuditDirectory: string): TCpuVisionResult;
+  const Progress: TCpuVisionProgress; const AuditDirectory: string; const AllowCuda: Boolean): TCpuVisionResult;
+const
+  MiB = 1024 * 1024;
 var
   ManifestLease, ModelLease, SidecarLease, ImageLease: TFileStream;
   Root: TJSONObject;
   Descriptor: TModelDescriptor;
-  ModelName, ModelHash, SourceHash, ModelPath, Sidecar, InputName: string;
+  ModelName, ModelHash, SourceHash, ModelPath, Sidecar, InputName, DeviceName: string;
   ErrorText: {$IFDEF FPC}AnsiString{$ELSE}string{$ENDIF};
-  Loaded: Boolean;
+  Loaded, Entered: Boolean;
+  Device: TDLDeviceType;
+  Cuda: TCudaExecution;
+  Workspace: TCudaWorkspace;
+  FreeBytes, WorkspaceBytes: UInt64;
   Scores: TArray<Single>;
   Labels: TArray<Integer>;
   Places: TArray<TRect>;
@@ -731,13 +723,17 @@ begin
   ImageLease := nil;
   Root := nil;
   Loaded := False;
+  Entered := False;
+  Cuda := nil;
+  Workspace := nil;
   try
     Say('Checking the selected bundle and source identity...');
     ManifestLease := TFileStream.Create(SafeFile(BundleDirectory, 'manifest.json'),
       fmOpenRead or fmShareDenyWrite);
     Result.ManifestSHA256 := HashStream(ManifestLease);
     Root := ParseObject(ReadTextStream(ManifestLease, 1024 * 1024));
-    ValidateManifest(Root, Profile, ModelName, ModelHash, SourceHash, InputName);
+    ValidateManifest(Root, Profile, AllowCuda, ModelName, ModelHash, SourceHash, InputName,
+      Result.Device, Result.CudaArchitecture);
     Result.InputName := InputName;
     ModelPath := SafeFile(BundleDirectory, ModelName);
     ModelLease := TFileStream.Create(ModelPath, fmOpenRead or fmShareDenyWrite);
@@ -769,12 +765,30 @@ begin
       Audit.Profile := Profile;
       Audit.Binding := Result;
     end;
-    Say('Loading the pinned TVM runtime on CPU...');
-    InitializeCpuRuntime(RuntimeDirectory);
+    Device := kDLCPU;
+    DeviceName := 'CPU';
+    if Result.Device = 'cuda' then
+    begin
+      Device := kDLCUDA;
+      Cuda := TCudaExecution.Create;
+      Result.DeviceName := Cuda.DeviceName;
+      DeviceName := 'CUDA (' + Result.DeviceName + ')';
+      Cuda.RequireArchitecture(Result.CudaArchitecture);
+      Cuda.Enter;
+      Entered := True;
+      FreeBytes := Cuda.FreeBytes;
+      Require(FreeBytes >= UInt64(ModelLease.Size) + 256 * MiB,
+        'Insufficient free CUDA memory to load the vision bundle.');
+      WorkspaceBytes := FreeBytes - UInt64(ModelLease.Size) - 128 * MiB;
+      if WorkspaceBytes > 1024 * MiB then WorkspaceBytes := 1024 * MiB;
+    end;
+    Say('Loading the pinned TVM runtime on ' + DeviceName + '...');
+    InitializeVisionRuntime(RuntimeDirectory, Device = kDLCUDA);
     ErrorText := '';
-    Loaded := TTVMRuntime.LoadModel(ModelPath, 'so', Descriptor, kDLCPU, 0, 'main', @ErrorText);
-    Require(Loaded, 'Cannot load the CPU model: ' + ErrorText);
-    Require(Descriptor.Device.device_type = kDLCPU, 'The model did not select the CPU device.');
+    Loaded := TTVMRuntime.LoadModel(ModelPath, 'so', Descriptor, Device, 0, 'main', @ErrorText);
+    Require(Loaded, 'Cannot load the model on ' + DeviceName + ': ' + ErrorText);
+    Require(Descriptor.Device.device_type = Device, 'The model did not select the requested device.');
+    if Cuda <> nil then Workspace := TCudaWorkspace.Create(Cuda, ModelPath, WorkspaceBytes);
     if AuditDirectory <> '' then
     begin
       Descriptor.InferenceObserver := CaptureCpuVisionAudit;
@@ -782,8 +796,10 @@ begin
     end;
     Shape := TArray<Int64>.Create(1, 3, Profile.InputSize, Profile.InputSize);
     TTVMRuntime.SetInputSpec(Descriptor, Shape, kDLFloat, 32, 1);
-    Say('Running ' + Profile.Title + ' on CPU...');
+    Say('Running ' + Profile.Title + ' on ' + DeviceName + '...');
     Started := GetTickCount64;
+    if Workspace <> nil then Workspace.BeginRun;
+    try
     if Profile.TaskKind = 'classification' then
     begin
       if not TYolo11.Categorize(Descriptor, Image, Ord(kDLCPU), 0, Scores,
@@ -828,6 +844,13 @@ begin
           Places[I].Right, Places[I].Bottom), Scores[I], Labels[I], '');
       end;
     end;
+    finally
+      if Workspace <> nil then
+      begin
+        Workspace.EndRun;
+        Workspace.CheckError;
+      end;
+    end;
     if AuditDirectory <> '' then
     begin
       Require(Audit.Captured, 'The requested CPU audit snapshot was not observed.');
@@ -841,6 +864,9 @@ begin
       Descriptor.InferenceObserverContext := nil;
       TTVMRuntime.FreeModel(Descriptor);
     end;
+    Workspace.Free;
+    if Entered then Cuda.Leave;
+    Cuda.Free;
     Root.Free;
     ImageLease.Free;
     SidecarLease.Free;
@@ -848,7 +874,23 @@ begin
     ManifestLease.Free;
   end;
   Result.JSONText := ResultJSON(Result, Profile);
-  Say('CPU inference completed. The model has been released.');
+  Say('Inference on ' + DeviceName + ' completed. The model has been released.');
+end;
+
+function RunCpuVision(const Profile: TCpuVisionProfile;
+  const BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256: string; const Image: IMat;
+  const Progress: TCpuVisionProgress; const AuditDirectory: string): TCpuVisionResult;
+begin
+  Result := RunVisionBundle(Profile, BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256,
+    Image, Progress, AuditDirectory, False);
+end;
+
+function RunVision(const Profile: TCpuVisionProfile;
+  const BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256: string; const Image: IMat;
+  const Progress: TCpuVisionProgress): TCpuVisionResult;
+begin
+  Result := RunVisionBundle(Profile, BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256,
+    Image, Progress, '', True);
 end;
 
 procedure WriteCpuVisionReport(const Path, JSONText: string);
@@ -881,10 +923,10 @@ begin
 end;
 
 initialization
-  LoadedRuntimeDirectory := '';
-  RuntimeInitializationFailed := False;
+  InitializeCriticalSection(VisionRuntimeLock);
 
 finalization
   ReleaseRuntimeLeases;
+  DeleteCriticalSection(VisionRuntimeLock);
 
 end.

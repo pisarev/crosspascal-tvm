@@ -14,7 +14,7 @@ interface
 
 uses
   {$IFDEF FPC}SysUtils, Windows{$ELSE}System.SysUtils, Winapi.Windows{$ENDIF},
-  TVM, TVM.CpuGraph;
+  CrossPascal.Json, TVM, TVM.CpuGraph;
 
 type
   TCudaExecution = class
@@ -52,6 +52,8 @@ type
     function FreeBytes: UInt64;
     procedure MemoryBytes(out Available, Total: UInt64);
     function ComputeVersion: string;
+    function Architecture: string;
+    procedure RequireArchitecture(const Target: string);
     function DeviceName: string;
   end;
 
@@ -69,6 +71,8 @@ type
     FLibrary: HMODULE;
     FAllocSlot: PPointer;
     FFreeSlot: PPointer;
+    FSavedAlloc: Pointer;
+    FSavedFree: Pointer;
     FOriginalAlloc: TAlloc;
     FOriginalFree: TRelease;
     FBuffers: TArray<TBuffer>;
@@ -80,9 +84,14 @@ type
   public
     constructor Create(const Cuda: TCudaExecution; const LibraryName: string; const Reserve: UInt64);
     destructor Destroy; override;
+    procedure BeginRun;
+    procedure EndRun;
+    procedure CheckError;
     function Run(const Graph: TCpuGraph; const Args: array of TTVMFFIObjectHandle;
       const Stop: TCpuGraphStop = nil): TTVMFFIAny;
   end;
+
+function ReadLanguageManifest(const Folder: string): TJSONValue;
 
 implementation
 
@@ -91,6 +100,48 @@ var
 
 threadvar
   ActiveWorkspace: TCudaWorkspace;
+
+function ReadLanguageManifest(const Folder: string): TJSONValue;
+var
+  Index, Selected: TJSONValue;
+  Root, Variants, Model: TJSONObject;
+  Cuda: TCudaExecution;
+  Target, Member: string;
+begin
+  Index := ReadModelJSON(BundleMember(Folder, 'model.json'));
+  try
+    Root := ModelObject(Index, 'language model manifest');
+    if Root.GetValue('cuda_variants') = nil then
+    begin
+      Result := Index;
+      Index := nil;
+      Exit;
+    end;
+    RequireCpu(ModelText(Root.GetValue('backend')) = 'TVM CUDA W8A32', 'Invalid CUDA variant index');
+    Variants := ModelObject(Root.GetValue('cuda_variants'), 'CUDA model variants');
+    Cuda := TCudaExecution.Create;
+    try
+      Target := Cuda.Architecture;
+    finally
+      Cuda.Free;
+    end;
+    Member := ModelText(Variants.GetValue(Target));
+    RequireCpu(Member <> '', 'This bundle has no ' + Target + ' variant. Choose a CPU bundle.');
+    Selected := ReadModelJSON(BundleMember(Folder, Member));
+    try
+      Model := ModelObject(Selected, 'CUDA language model variant');
+      RequireCpu((ModelText(Model.GetValue('cuda_arch')) = Target) and
+        (ModelText(Model.GetValue('schema')) = ModelText(Root.GetValue('schema'))),
+        'The selected CUDA model does not match the variant index');
+      Result := Selected;
+      Selected := nil;
+    finally
+      Selected.Free;
+    end;
+  finally
+    Index.Free;
+  end;
+end;
 
 procedure CheckCuda(const Status: Integer; const Operation: string);
 begin
@@ -194,6 +245,20 @@ begin
   Result := IntToStr(Major) + '.' + IntToStr(Minor);
 end;
 
+function TCudaExecution.Architecture: string;
+begin
+  Result := 'sm_' + StringReplace(ComputeVersion, '.', '', []);
+end;
+
+procedure TCudaExecution.RequireArchitecture(const Target: string);
+var
+  Actual: string;
+begin
+  Actual := Architecture;
+  RequireCpu(Target = Actual, 'The model bundle targets ' + Target + ', but ' +
+    DeviceName + ' requires ' + Actual + '.');
+end;
+
 function WorkspaceAllocate(Kind, Device: Integer; Bytes: UInt64; Code, Bits: Integer): Pointer; cdecl;
 begin
   Result := nil;
@@ -288,44 +353,60 @@ begin
   raise Exception.Create('Invalid CUDA workspace release');
 end;
 
-function TCudaWorkspace.Run(const Graph: TCpuGraph; const Args: array of TTVMFFIObjectHandle;
-  const Stop: TCpuGraphStop): TTVMFFIAny;
-var
-  SavedAlloc, SavedFree: Pointer;
+procedure TCudaWorkspace.BeginRun;
 begin
-  if FAllocSlot = nil then Exit(Graph.Run(Args, Stop));
+  FError := '';
+  if FAllocSlot = nil then Exit;
   EnterCriticalSection(WorkspaceLock);
   try
     if ActiveWorkspace <> nil then raise Exception.Create('Nested CUDA workspace use');
-    SavedAlloc := FAllocSlot^;
-    SavedFree := FFreeSlot^;
-    FOriginalAlloc := TAlloc(SavedAlloc);
-    FOriginalFree := TRelease(SavedFree);
+    FSavedAlloc := FAllocSlot^;
+    FSavedFree := FFreeSlot^;
+    FOriginalAlloc := TAlloc(FSavedAlloc);
+    FOriginalFree := TRelease(FSavedFree);
     if not Assigned(FOriginalAlloc) or not Assigned(FOriginalFree) then
       raise Exception.Create('TVM has not initialized the workspace exports');
-    FError := '';
     ActiveWorkspace := Self;
     FAllocSlot^ := @WorkspaceAllocate;
     FFreeSlot^ := @WorkspaceRelease;
+  except
+    LeaveCriticalSection(WorkspaceLock);
+    raise;
+  end;
+end;
+
+procedure TCudaWorkspace.EndRun;
+begin
+  if FAllocSlot = nil then Exit;
+  FAllocSlot^ := FSavedAlloc;
+  FFreeSlot^ := FSavedFree;
+  ActiveWorkspace := nil;
+  LeaveCriticalSection(WorkspaceLock);
+end;
+
+procedure TCudaWorkspace.CheckError;
+begin
+  if FError <> '' then raise Exception.Create(FError);
+end;
+
+function TCudaWorkspace.Run(const Graph: TCpuGraph; const Args: array of TTVMFFIObjectHandle;
+  const Stop: TCpuGraphStop): TTVMFFIAny;
+begin
+  BeginRun;
+  try
     try
-      try
-        Result := Graph.Run(Args, Stop);
-      except
-        if FError <> '' then raise Exception.Create(FError);
-        raise;
-      end;
-      if FError <> '' then
-      begin
-        if Result.TypeIndex >= kTVMFFIStaticObjectBegin then TTVMRuntime.ObjectRelease(Result.VObj);
-        raise Exception.Create(FError);
-      end;
-    finally
-      FAllocSlot^ := SavedAlloc;
-      FFreeSlot^ := SavedFree;
-      ActiveWorkspace := nil;
+      Result := Graph.Run(Args, Stop);
+    except
+      CheckError;
+      raise;
+    end;
+    if FError <> '' then
+    begin
+      if Result.TypeIndex >= kTVMFFIStaticObjectBegin then TTVMRuntime.ObjectRelease(Result.VObj);
+      CheckError;
     end;
   finally
-    LeaveCriticalSection(WorkspaceLock);
+    EndRun;
   end;
 end;
 

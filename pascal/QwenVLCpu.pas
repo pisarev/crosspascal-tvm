@@ -14,15 +14,25 @@ unit QwenVLCpu;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
-  CrossPascal.Json, QwenTokenizer, TVM, TVM.CpuGraph, QwenCuda;
+  {$IFDEF FPC}SysUtils, Classes, Generics.Collections
+  {$ELSE}System.SysUtils, System.Classes, System.Generics.Collections{$ENDIF},
+  CrossPascal.Json, DLPack, QwenTokenizer, TVM, TVM.CpuGraph, TVM.CudaExecution, QwenCuda;
 
 type
   TQwenVLCpu = class
   private type
+    TParameter = record
+      FileData: TMappedModelFile;
+      Shape: TArray<Int64>;
+      Bits: Integer;
+    end;
+    TUploadedWeights = TDictionary<TMappedModelFile, TTVMFFIObjectHandle>;
     TGraph = record
       VM: TCpuGraph;
       Weights: TTensorHandles;
+      LibraryName: string;
+      Parameters: TArray<TParameter>;
+      Workspace: TCudaWorkspace;
     end;
     TPosition = array[0..2] of Int64;
     TPrompt = record
@@ -63,13 +73,25 @@ type
     FStd: array[0..2] of Single;
     FScale: Single;
     FLoadSeconds: Double;
-    function WeightFile(const Spec: TJSONObject; out Shape: TArray<Int64>): TMappedModelFile;
+    FCuda: TCudaExecution;
+    FDevice: TDLDeviceType;
+    FDeviceLabel: string;
+    FBackend: string;
+    function WeightFile(const Spec: TJSONObject; out Shape: TArray<Int64>;
+      out Bits: Integer): TMappedModelFile;
     procedure LoadGraph(const Value: TJSONValue; const Hashes: TJSONObject;
       const InputCount: Integer; var Graph: TGraph);
+    procedure LoadCudaWeights(var Graph: TGraph; const Uploaded: TUploadedWeights);
+    procedure LoadCudaTextWeights;
+    procedure ReleaseCudaWeights(var Graph: TGraph);
+    procedure ReleaseGraphs;
     function ImageFeatures(const FileName: string; const Stop: TQwenStopRequested; out Hash: string;
       out Reused: Boolean): TArray<Single>;
     function TextStep(const Graph: TGraph; const Prompt: TPrompt; const Position, Count: Integer;
       var Caches: TTensorHandles): TArray<Single>;
+    function GenerateInContext(const Prompt: string; const Options: TQwenGenerationOptions;
+      const Images: array of string; const Progress, OnText: TQwenProgress;
+      const ShouldStop: TQwenStopRequested): string;
   public
     constructor Create(const Folder, RuntimeRoot: string; const Progress: TQwenProgress);
     destructor Destroy; override;
@@ -82,8 +104,11 @@ type
 implementation
 
 uses
-  {$IFDEF FPC}Windows, Math{$ELSE}Winapi.Windows, System.Math{$ENDIF}, DLPack, CrossVision.Mat,
+  {$IFDEF FPC}Windows, Math{$ELSE}Winapi.Windows, System.Math{$ENDIF}, CrossVision.Mat,
   TVM.ImageInput, CrossPascal.SHA256;
+
+const
+  MiB = 1024 * 1024;
 
 procedure StopIfRequested(const Stop: TQwenStopRequested);
 begin
@@ -125,15 +150,20 @@ begin
   Inc(NextPosition, Grid);
 end;
 
-function TQwenVLCpu.WeightFile(const Spec: TJSONObject; out Shape: TArray<Int64>): TMappedModelFile;
+function TQwenVLCpu.WeightFile(const Spec: TJSONObject; out Shape: TArray<Int64>;
+  out Bits: Integer): TMappedModelFile;
 var
-  Name, Path: string;
+  Name, Path, DataType: string;
   I: Integer;
   Stream: TFileStream;
 begin
   Name := ModelText(Spec.GetValue('file'));
   Shape := ModelShape(Spec.GetValue('shape'));
-  RequireCpu(ModelText(Spec.GetValue('dtype')) = 'float32', 'Expected float32 Qwen-VL weights');
+  DataType := ModelText(Spec.GetValue('dtype'));
+  RequireCpu((DataType = 'float32') or ((DataType = 'int8') and (FCuda <> nil)),
+    'Unsupported Qwen-VL weight data type: ' + DataType);
+  Bits := 32;
+  if DataType = 'int8' then Bits := 8;
   I := FMaps.IndexOf(Name);
   if I >= 0 then
     Result := TMappedModelFile(FMaps.Objects[I])
@@ -154,7 +184,7 @@ begin
       raise;
     end;
   end;
-  RequireCpu(Result.Size = TensorElements(Shape) * SizeOf(Single),
+  RequireCpu(Result.Size = TensorElements(Shape) * (Bits div 8),
     'Incorrect Qwen-VL weight size: ' + Name);
 end;
 
@@ -164,8 +194,7 @@ var
   Spec, Params: TJSONObject;
   Inputs, Runtime: TJSONArray;
   Name, LibraryName: string;
-  Shape: TArray<Int64>;
-  FileData: TMappedModelFile;
+  Parameter: TParameter;
   I: Integer;
 begin
   Spec := ModelObject(Value, 'Qwen-VL graph');
@@ -179,14 +208,88 @@ begin
   RequireCpu((Hashes.GetValue(LibraryName) <> nil) and (Hashes.GetValue(ModelText(Spec.GetValue('onnx'))) <> nil),
     'Qwen-VL graph hashes are incomplete');
   Params := ModelObject(Spec.GetValue('parameters'), 'graph parameters');
-  SetLength(Graph.Weights, Inputs.Count - InputCount);
+  if FCuda = nil then SetLength(Graph.Weights, Inputs.Count - InputCount)
+  else SetLength(Graph.Parameters, Inputs.Count - InputCount);
   for I := InputCount to Inputs.Count - 1 do
   begin
     Name := ModelText(Inputs.Items[I]);
-    FileData := WeightFile(ModelObject(Params.GetValue(Name), Name), Shape);
-    Graph.Weights[I - InputCount] := MappedFloatTensor(FileData.AtOffset(0, FileData.Size), Shape);
+    Parameter.FileData := WeightFile(ModelObject(Params.GetValue(Name), Name), Parameter.Shape,
+      Parameter.Bits);
+    if FCuda = nil then
+      Graph.Weights[I - InputCount] := MappedFloatTensor(
+        Parameter.FileData.AtOffset(0, Parameter.FileData.Size), Parameter.Shape)
+    else
+      Graph.Parameters[I - InputCount] := Parameter;
   end;
-  Graph.VM := TCpuGraph.Create(BundleMember(FFolder, LibraryName));
+  Graph.LibraryName := BundleMember(FFolder, LibraryName);
+  Graph.VM := TCpuGraph.Create(Graph.LibraryName, FDevice);
+end;
+
+procedure TQwenVLCpu.LoadCudaWeights(var Graph: TGraph; const Uploaded: TUploadedWeights);
+var
+  Parameter: TParameter;
+  Handle: TTVMFFIObjectHandle;
+  Required, Free: UInt64;
+  Code: TDLDataTypeCode;
+  I: Integer;
+begin
+  Required := 0;
+  for Parameter in Graph.Parameters do
+    if not Uploaded.ContainsKey(Parameter.FileData) then Inc(Required, Parameter.FileData.Size);
+  Free := FCuda.FreeBytes;
+  RequireCpu(Free >= Required + 384 * MiB,
+    Format('Qwen-VL needs %.2f GiB of free CUDA memory for this stage. Available: %.2f GiB.',
+      [(Required + 384 * MiB) / 1073741824.0, Free / 1073741824.0]));
+  SetLength(Graph.Weights, Length(Graph.Parameters));
+  try
+    for I := 0 to High(Graph.Parameters) do
+    begin
+      Parameter := Graph.Parameters[I];
+      if Uploaded.TryGetValue(Parameter.FileData, Handle) then
+      begin
+        TTVMRuntime.ObjectRetain(Handle);
+        Graph.Weights[I] := Handle;
+        Continue;
+      end;
+      Code := kDLFloat;
+      if Parameter.Bits = 8 then Code := kDLInt;
+      Handle := DeviceTensor(Parameter.Shape, Code, Parameter.Bits,
+        Parameter.FileData.AtOffset(0, Parameter.FileData.Size), kDLCUDA);
+      Graph.Weights[I] := Handle;
+      Uploaded.Add(Parameter.FileData, Handle);
+    end;
+    FCuda.Synchronize;
+    Graph.Workspace := TCudaWorkspace.Create(FCuda, Graph.LibraryName, 256 * MiB);
+  except
+    ReleaseCudaWeights(Graph);
+    raise;
+  end;
+end;
+
+procedure TQwenVLCpu.LoadCudaTextWeights;
+var
+  Uploaded: TUploadedWeights;
+begin
+  if Length(FDecode.Weights) > 0 then Exit;
+  Uploaded := TUploadedWeights.Create;
+  try
+    try
+      LoadCudaWeights(FDecode, Uploaded);
+      if FPrefill.VM <> nil then LoadCudaWeights(FPrefill, Uploaded);
+    except
+      ReleaseCudaWeights(FPrefill);
+      ReleaseCudaWeights(FDecode);
+      raise;
+    end;
+  finally
+    Uploaded.Free;
+  end;
+end;
+
+procedure TQwenVLCpu.ReleaseCudaWeights(var Graph: TGraph);
+begin
+  FreeAndNil(Graph.Workspace);
+  ReleaseTensors(Graph.Weights);
 end;
 
 constructor TQwenVLCpu.Create(const Folder, RuntimeRoot: string; const Progress: TQwenProgress);
@@ -196,23 +299,32 @@ var
   Shape: TArray<Int64>;
   Stops: TJSONValue;
   Mean, Std: TJSONArray;
-  I: Integer;
+  I, Bits: Integer;
   Started: UInt64;
 begin
   inherited Create;
   Started := GetTickCount64;
   FFolder := ExpandFileName(Folder);
+  FDevice := kDLCPU;
+  FDeviceLabel := 'CPU';
   FCVLibrary := IncludeTrailingPathDelimiter(RuntimeRoot) + 'runtime\gemma-native\crosscv.dll';
   FMaps := TStringList.Create;
   FMaps.OwnsObjects := True;
   FMaps.Sorted := True;
-  Data := ReadModelJSON(BundleMember(FFolder, 'model.json'));
+  Data := ReadLanguageManifest(FFolder);
   try
     Model := ModelObject(Data, 'Qwen-VL model');
-    RequireCpu(
-      (ModelText(Model.GetValue('schema')) = 'crosspascal.qwen2_5_vl.v1') and (ModelText(Model.GetValue('backend')) = 'TVM LLVM CPU FP32'),
-      'Expected a Qwen2.5-VL CPU bundle'
-    );
+    FBackend := ModelText(Model.GetValue('backend'));
+    RequireCpu((ModelText(Model.GetValue('schema')) = 'crosspascal.qwen2_5_vl.v1') and
+      ((FBackend = 'TVM LLVM CPU FP32') or (FBackend = 'TVM CUDA W8A32')),
+      'Expected a Qwen2.5-VL TVM bundle');
+    if FBackend = 'TVM CUDA W8A32' then
+    begin
+      FCuda := TCudaExecution.Create;
+      FCuda.RequireArchitecture(ModelText(Model.GetValue('cuda_arch')));
+      FDevice := kDLCUDA;
+      FDeviceLabel := 'CUDA';
+    end;
     FContext := ModelInt(Model.GetValue('context'), 'context');
     FCacheCount := ModelInt(Model.GetValue('cache_count'), 'cache count');
     FCacheShape := ModelShape(Model.GetValue('cache_shape'));
@@ -220,20 +332,25 @@ begin
     FSoftTokens := ModelInt(Model.GetValue('soft_tokens'), 'image token count');
     RequireCpu((FContext > 1) and (FContext <= 131072) and (FCacheCount > 0) and
       (FCacheCount <= 256) and (FSize > 0) and (FSize <= 4096) and
-      (FSoftTokens > 0) and (FSoftTokens < FContext), 'Invalid Qwen-VL CPU profile');
+      (FSoftTokens > 0) and (FSoftTokens < FContext), 'Invalid Qwen-VL profile');
     Hashes := ModelObject(Model.GetValue('artifact_sha256'), 'Qwen-VL artifact hashes');
-    if Assigned(Progress) then Progress('Verifying the Qwen-VL CPU bundle...');
+    if Assigned(Progress) then Progress('Verifying the Qwen-VL ' + FDeviceLabel + ' bundle...');
     VerifyArtifacts(FFolder, Hashes);
     QwenCuda.InitializeRuntime(IncludeTrailingPathDelimiter(RuntimeRoot) +
-      'crosspascal-tvm\runtime\windows-x64-cuda\', False);
+      'crosspascal-tvm\runtime\windows-x64-cuda\', FCuda <> nil);
     Graphs := ModelObject(Model.GetValue('graphs'), 'Qwen-VL graphs');
-    LoadGraph(Graphs.GetValue('text'), Hashes, FCacheCount + 3, FDecode);
-    LoadGraph(Graphs.GetValue('vision'), Hashes, 1, FVision);
-    if Graphs.GetValue('prefill') <> nil then
-    begin
-      FChunk := ModelInt(Model.GetValue('prefill_chunk'), 'prefill chunk');
-      RequireCpu((FChunk > 1) and (FChunk <= FContext), 'Invalid Qwen-VL prefill chunk');
-      LoadGraph(Graphs.GetValue('prefill'), Hashes, FCacheCount + 3, FPrefill);
+    if FCuda <> nil then FCuda.Enter;
+    try
+      LoadGraph(Graphs.GetValue('text'), Hashes, FCacheCount + 3, FDecode);
+      LoadGraph(Graphs.GetValue('vision'), Hashes, 1, FVision);
+      if Graphs.GetValue('prefill') <> nil then
+      begin
+        FChunk := ModelInt(Model.GetValue('prefill_chunk'), 'prefill chunk');
+        RequireCpu((FChunk > 1) and (FChunk <= FContext), 'Invalid Qwen-VL prefill chunk');
+        LoadGraph(Graphs.GetValue('prefill'), Hashes, FCacheCount + 3, FPrefill);
+      end;
+    finally
+      if FCuda <> nil then FCuda.Leave;
     end;
   finally
     Data.Free;
@@ -245,9 +362,9 @@ begin
         ModelObject(ModelObject(Data, 'parameters').GetValue('weights'), 'weights').GetValue('model.language_model.embed_tokens.weight'),
         'embedding table'
       ),
-      Shape
+      Shape, Bits
     );
-    RequireCpu((Length(Shape) = 2) and (Shape[0] <= 1000000) and (Shape[1] <= 65536),
+    RequireCpu((Bits = 32) and (Length(Shape) = 2) and (Shape[0] <= 1000000) and (Shape[1] <= 65536),
       'Invalid Qwen-VL embedding table');
     FVocab := Shape[0];
     FWidth := Shape[1];
@@ -309,20 +426,34 @@ begin
     Data.Free;
   end;
   FLoadSeconds := (GetTickCount64 - Started) / 1000.0;
-  if Assigned(Progress) then Progress('Model loaded on CPU through TVM');
+  if Assigned(Progress) then Progress('Model loaded on ' + FDeviceLabel + ' through TVM');
 end;
 
 destructor TQwenVLCpu.Destroy;
 begin
+  try
+    if FCuda <> nil then FCuda.Enter;
+    try
+      ReleaseGraphs;
+    finally
+      if FCuda <> nil then FCuda.Leave;
+    end;
+  finally
+    FCuda.Free;
+    FTokenizer.Free;
+    FMaps.Free;
+    inherited;
+  end;
+end;
+
+procedure TQwenVLCpu.ReleaseGraphs;
+begin
+  ReleaseCudaWeights(FVision);
+  ReleaseCudaWeights(FPrefill);
+  ReleaseCudaWeights(FDecode);
   FVision.VM.Free;
   FPrefill.VM.Free;
   FDecode.VM.Free;
-  ReleaseTensors(FVision.Weights);
-  ReleaseTensors(FPrefill.Weights);
-  ReleaseTensors(FDecode.Weights);
-  FTokenizer.Free;
-  FMaps.Free;
-  inherited;
 end;
 
 function TQwenVLCpu.ImageFeatures(const FileName: string; const Stop: TQwenStopRequested;
@@ -334,6 +465,7 @@ var
   Tensor: TTVMFFIObjectHandle;
   Reply: TTVMFFIAny;
   Shape: PDLTensor;
+  Uploaded: TUploadedWeights;
   W, H, PadX, PadY, Grid, PatchWidth, At, I, BX, BY, MX, MY, C, T, X, Y, RX, RY: Integer;
   Raw: Single;
 begin
@@ -374,9 +506,25 @@ begin
                   Inc(At);
                 end;
   StopIfRequested(Stop);
-  Tensor := CpuTensor([Sqr(Grid), PatchWidth], kDLFloat, 32, Pointer(Patches));
+  if FCuda <> nil then
+  begin
+    ReleaseCudaWeights(FPrefill);
+    ReleaseCudaWeights(FDecode);
+    Uploaded := TUploadedWeights.Create;
+    try
+      LoadCudaWeights(FVision, Uploaded);
+    finally
+      Uploaded.Free;
+    end;
+  end;
+  Tensor := nil;
   try
-    Reply := FVision.VM.Run(TTensorHandles.Create(Tensor) + FVision.Weights, TCpuGraphStop(Stop));
+    Tensor := DeviceTensor([Sqr(Grid), PatchWidth], kDLFloat, 32, Pointer(Patches), FDevice);
+    if FVision.Workspace = nil then
+      Reply := FVision.VM.Run(TTensorHandles.Create(Tensor) + FVision.Weights, TCpuGraphStop(Stop))
+    else
+      Reply := FVision.Workspace.Run(FVision.VM, TTensorHandles.Create(Tensor) + FVision.Weights,
+        TCpuGraphStop(Stop));
     RequireCpu(Reply.TypeIndex = kTVMFFITensor, 'Expected Qwen-VL vision tensor');
     try
       Shape := TTVMRuntime.TensorDLTensor(Reply.VObj);
@@ -388,6 +536,7 @@ begin
     end;
   finally
     TTVMRuntime.ObjectRelease(Tensor);
+    if FCuda <> nil then ReleaseCudaWeights(FVision);
   end;
   StopIfRequested(Stop);
   for I := 0 to High(Result) do
@@ -426,10 +575,13 @@ begin
   end;
   SetLength(Inputs, 3);
   try
-    Inputs[0] := CpuTensor([1, Count, FWidth], kDLFloat, 32, Pointer(Rows));
-    Inputs[1] := CpuTensor([3, 1, Count], kDLInt, 64, Pointer(Rotary));
-    Inputs[2] := CpuTensor([Count], kDLInt, 64, Pointer(Positions));
-    Reply := Graph.VM.Run(Inputs + Caches + Graph.Weights);
+    Inputs[0] := DeviceTensor([1, Count, FWidth], kDLFloat, 32, Pointer(Rows), FDevice);
+    Inputs[1] := DeviceTensor([3, 1, Count], kDLInt, 64, Pointer(Rotary), FDevice);
+    Inputs[2] := DeviceTensor([Count], kDLInt, 64, Pointer(Positions), FDevice);
+    if Graph.Workspace = nil then
+      Reply := Graph.VM.Run(Inputs + Caches + Graph.Weights)
+    else
+      Reply := Graph.Workspace.Run(Graph.VM, Inputs + Caches + Graph.Weights);
     RequireCpu(Reply.VObj <> nil, 'TVM returned no Qwen-VL graph outputs');
     try
       SetLength(NextCaches, Length(Caches));
@@ -458,6 +610,18 @@ begin
 end;
 
 function TQwenVLCpu.Generate(const Prompt: string; const Options: TQwenGenerationOptions;
+  const Images: array of string; const Progress, OnText: TQwenProgress;
+  const ShouldStop: TQwenStopRequested): string;
+begin
+  if FCuda <> nil then FCuda.Enter;
+  try
+    Result := GenerateInContext(Prompt, Options, Images, Progress, OnText, ShouldStop);
+  finally
+    if FCuda <> nil then FCuda.Leave;
+  end;
+end;
+
+function TQwenVLCpu.GenerateInContext(const Prompt: string; const Options: TQwenGenerationOptions;
   const Images: array of string; const Progress, OnText: TQwenProgress;
   const ShouldStop: TQwenStopRequested): string;
 const
@@ -520,7 +684,7 @@ begin
         'Text and images exceed the compiled context');
       for Path in Images do
       begin
-        if Assigned(Progress) then Progress('Encoding image on CPU...');
+        if Assigned(Progress) then Progress('Encoding image on ' + FDeviceLabel + '...');
         ImageStarted := GetTickCount64;
         Features := ImageFeatures(Path, ShouldStop, Hash, Reused);
         ImageReport := TJSONObject.Create;
@@ -528,7 +692,8 @@ begin
         ImageReport.AddPair('sha256', Hash);
         ImageReport.AddPair('reused', JSONBoolean(Reused));
         ImageReport.AddPair('seconds', JSONFloat((GetTickCount64 - ImageStarted) / 1000.0));
-        ImageReport.AddPair('backend', 'TVM LLVM CPU FP32');
+        if FCuda = nil then ImageReport.AddPair('backend', FBackend)
+        else ImageReport.AddPair('backend', 'TVM CUDA FP32');
         Input.AppendText([FImageStart]);
         Input.AppendImage(FImageToken, FSoftTokens, FSize div (FPatch * FMerge), FWidth, Features);
         Input.AppendText([FImageEnd]);
@@ -551,9 +716,11 @@ begin
             Limit := EffortBudget[Options.Effort];
             LimitReason := 'effort_limit';
           end;
-      if Assigned(Progress) then Progress('Processing the prompt on CPU...');
+      if Assigned(Progress) then Progress('Processing the prompt on ' + FDeviceLabel + '...');
+      if FCuda <> nil then LoadCudaTextWeights;
       SetLength(Caches, FCacheCount);
-      for I := 0 to High(Caches) do Caches[I] := CpuTensor(FCacheShape, kDLFloat, 32, nil);
+      for I := 0 to High(Caches) do
+        Caches[I] := DeviceTensor(FCacheShape, kDLFloat, 32, nil, FDevice);
       Position := 0;
       while Position < FContext - 1 do
       begin
@@ -604,7 +771,12 @@ begin
     end;
     Report.AddPair('text', Answer);
     Report.AddPair('stop', StopReason);
-    Report.AddPair('backend', 'TVM LLVM CPU FP32');
+    Report.AddPair('backend', FBackend);
+    if FCuda <> nil then
+    begin
+      Report.AddPair('device_name', FCuda.DeviceName);
+      Report.AddPair('compiled_arch', FCuda.Architecture);
+    end;
     Report.AddPair('load_seconds', JSONFloat(FLoadSeconds));
     Report.AddPair('encoding_seconds', JSONFloat((Encoded - Started) / 1000.0));
     Report.AddPair('seconds', JSONFloat((GetTickCount64 - Started) / 1000.0));

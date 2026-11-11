@@ -280,6 +280,7 @@ begin
   FCudaArch := ModelText(Manifest.GetValue('cuda_arch'));
   FCudaWeights := Uploads;
   FCuda := TCudaExecution.Create;
+  FCuda.RequireArchitecture(FCudaArch);
   FCuda.Enter;
   try
     Free := FCuda.FreeBytes;
@@ -327,7 +328,7 @@ var
   ModelData, RecordData: TJSONValue;
   Manifest, RecordObj, Prefill, Weights, Tables, Spec, Hashes: TJSONObject;
   Shape: TArray<Int64>;
-  NativeDir, RuntimeDir, LibraryName, PrefillOnnx: string;
+  NativeDir, RuntimeDir, LibraryName, PrefillOnnx, VisionManifest: string;
   I: Integer;
   Started: UInt64;
 begin
@@ -340,7 +341,7 @@ begin
   NativeDir := IncludeTrailingPathDelimiter(RuntimeRoot) + 'runtime\gemma-native\';
   RuntimeDir := IncludeTrailingPathDelimiter(RuntimeRoot) +
     'crosspascal-tvm\runtime\windows-x64-cuda\';
-  ModelData := ReadModelJSON(BundleMember(FFolder, 'model.json'));
+  ModelData := ReadLanguageManifest(FFolder);
   try
     Manifest := ModelObject(ModelData, 'Gemma 3n manifest');
     FBackend := ModelText(Manifest.GetValue('backend'));
@@ -409,16 +410,18 @@ begin
         ReadWeights(Prefill, Weights, FPrefillWeights);
         FPrefill := TCpuGraph.Create(BundleMember(FFolder, LibraryName));
       end;
-      if ModelText(Manifest.GetValue('vision_manifest')) <> '' then
+      VisionManifest := ModelText(Manifest.GetValue('vision_manifest'));
+      if VisionManifest <> '' then
       begin
-        RequireCpu(FHostEmbeddings and (JSONValueText(Manifest.GetValue('vision_manifest')) = 'vision.json'),
-          'Unexpected Gemma 3n vision manifest name');
+        RequireCpu(FHostEmbeddings and (Hashes.GetValue(VisionManifest) <> nil),
+          'Missing Gemma 3n vision manifest hash');
         FStartImage := FTokenizer.ID('<start_of_image>');
         FEndImage := FTokenizer.ID('<end_of_image>');
         FSoftImage := FTokenizer.ID('<image_soft_token>');
         RequireCpu((FStartImage >= 0) and (FEndImage >= 0) and (FSoftImage >= 0),
           'Gemma 3n tokenizer does not contain the vision markers');
-        FVision := TGemma3nVision.Create(FFolder, NativeDir + 'crosscv.dll', FTables[0].Width, FCuda);
+        FVision := TGemma3nVision.Create(FFolder, NativeDir + 'crosscv.dll', FTables[0].Width, FCuda,
+          VisionManifest);
       end;
     finally
       RecordData.Free;

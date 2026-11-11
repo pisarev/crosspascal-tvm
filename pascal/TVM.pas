@@ -2031,9 +2031,15 @@ begin
         Exit(False);
     if not ModuleGetFunction(Descriptor.VMHandle, 'get_output', True, Descriptor.GetOutputFunc, Error) then
       Exit(False);
-    if not CallFunc(Descriptor.InitFunc,
+    if DeviceType = kDLCUDA then
+    begin
+      if not CallFunc(Descriptor.InitFunc, [AnyInt(Ord(kDLCUDA)), AnyInt(DeviceID),
+        AnyInt(kTVMVMAllocNaive), AnyInt(Ord(kDLCPU)), AnyInt(0), AnyInt(kTVMVMAllocPooled)],
+        InitRes, Error) then Exit(False);
+    end
+    else if not CallFunc(Descriptor.InitFunc,
       [AnyInt(Ord(DeviceType)), AnyInt(DeviceID), AnyInt(kTVMVMAllocPooled)], InitRes, Error) then
-        Exit(False);
+      Exit(False);
     Result := True;
   finally
     if not Result then

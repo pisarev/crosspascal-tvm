@@ -66,7 +66,7 @@ implementation
 
 uses
   {$IFDEF FPC}Classes{$ELSE}System.Classes{$ENDIF},
-  CrossPascal.Json;
+  CrossPascal.Json, TVM.CpuGraph;
 
 function DefaultLanguageOptions: TLanguageOptions;
 begin
@@ -95,7 +95,7 @@ var
   Text: TStringList;
   Value: TJSONValue;
   Obj: TJSONObject;
-  LibraryName: string;
+  LibraryName, VisionManifest: string;
 begin
   Result := Default(TLanguageCapabilities);
   Text := TStringList.Create;
@@ -125,13 +125,16 @@ begin
       Result.SupportsImages := False;
       if (Result.Architecture = 'qwen2_5_vl') and
         (TextField(Obj, 'schema') = 'crosspascal.qwen2_5_vl.v1') and
-        (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32') then
+        ((TextField(Obj, 'backend') = 'TVM LLVM CPU FP32') or
+         (TextField(Obj, 'backend') = 'TVM CUDA W8A32')) then
           Result.SupportsImages := True;
       if (Result.Architecture = 'gemma3n') and
         ((TextField(Obj, 'backend') = 'TVM CUDA W8A32') or
-        (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32')) and
-        (TextField(Obj, 'vision_manifest') = 'vision.json') then
-          Result.SupportsImages := FileExists(IncludeTrailingPathDelimiter(Bundle) + 'vision.json');
+        (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32')) then
+      begin
+        VisionManifest := TextField(Obj, 'vision_manifest');
+        Result.SupportsImages := (VisionManifest <> '') and FileExists(BundleMember(Bundle, VisionManifest));
+      end;
       Result.ImageExplanation := 'This bundle accepts text only. Images need a vision encoder and a compatible multimodal runtime. Your image will not be sent or silently ignored.';
     finally
       Value.Free;
@@ -170,12 +173,12 @@ begin
         FGemma3n := TGemma3nNative.Create(FBundle, FRuntime, FOnStatus);
         FInfo.ContextTokens := FGemma3n.ContextTokens;
       end
-      else if (FInfo.Architecture = 'gemma2') and (FInfo.Device = 'CPU') then
+      else if FInfo.Architecture = 'gemma2' then
         begin
           FGemma2Cpu := TGemma2Cpu.Create(FBundle, FRuntime, FOnStatus);
           FInfo.ContextTokens := FGemma2Cpu.ContextTokens;
         end
-        else if (FInfo.Architecture = 'qwen2_5_vl') and (FInfo.Device = 'CPU') then
+        else if FInfo.Architecture = 'qwen2_5_vl' then
           begin
             FQwenVLCpu := TQwenVLCpu.Create(FBundle, FRuntime, FOnStatus);
             FInfo.ContextTokens := FQwenVLCpu.ContextTokens;
