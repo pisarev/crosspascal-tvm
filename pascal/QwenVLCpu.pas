@@ -81,7 +81,8 @@ type
       out Bits: Integer): TMappedModelFile;
     procedure LoadGraph(const Value: TJSONValue; const Hashes: TJSONObject;
       const InputCount: Integer; var Graph: TGraph);
-    procedure LoadCudaWeights(var Graph: TGraph; const Uploaded: TUploadedWeights);
+    procedure LoadCudaWeights(var Graph: TGraph; const Uploaded: TUploadedWeights;
+      const Reserve: UInt64);
     procedure LoadCudaTextWeights;
     procedure ReleaseCudaWeights(var Graph: TGraph);
     procedure ReleaseGraphs;
@@ -225,7 +226,8 @@ begin
   Graph.VM := TCpuGraph.Create(Graph.LibraryName, FDevice);
 end;
 
-procedure TQwenVLCpu.LoadCudaWeights(var Graph: TGraph; const Uploaded: TUploadedWeights);
+procedure TQwenVLCpu.LoadCudaWeights(var Graph: TGraph; const Uploaded: TUploadedWeights;
+  const Reserve: UInt64);
 var
   Parameter: TParameter;
   Handle: TTVMFFIObjectHandle;
@@ -237,9 +239,9 @@ begin
   for Parameter in Graph.Parameters do
     if not Uploaded.ContainsKey(Parameter.FileData) then Inc(Required, Parameter.FileData.Size);
   Free := FCuda.FreeBytes;
-  RequireCpu(Free >= Required + 384 * MiB,
+  RequireCpu(Free >= Required + Reserve,
     Format('Qwen-VL needs %.2f GiB of free CUDA memory for this stage. Available: %.2f GiB.',
-      [(Required + 384 * MiB) / 1073741824.0, Free / 1073741824.0]));
+      [(Required + Reserve) / 1073741824.0, Free / 1073741824.0]));
   SetLength(Graph.Weights, Length(Graph.Parameters));
   try
     for I := 0 to High(Graph.Parameters) do
@@ -269,13 +271,15 @@ end;
 procedure TQwenVLCpu.LoadCudaTextWeights;
 var
   Uploaded: TUploadedWeights;
+  Reserve: UInt64;
 begin
   if Length(FDecode.Weights) > 0 then Exit;
+  Reserve := UInt64(TensorElements(FCacheShape)) * FCacheCount * SizeOf(Single) * 2 + 512 * MiB;
   Uploaded := TUploadedWeights.Create;
   try
     try
-      LoadCudaWeights(FDecode, Uploaded);
-      if FPrefill.VM <> nil then LoadCudaWeights(FPrefill, Uploaded);
+      LoadCudaWeights(FDecode, Uploaded, Reserve);
+      if FPrefill.VM <> nil then LoadCudaWeights(FPrefill, Uploaded, Reserve);
     except
       ReleaseCudaWeights(FPrefill);
       ReleaseCudaWeights(FDecode);
@@ -512,7 +516,7 @@ begin
     ReleaseCudaWeights(FDecode);
     Uploaded := TUploadedWeights.Create;
     try
-      LoadCudaWeights(FVision, Uploaded);
+      LoadCudaWeights(FVision, Uploaded, 512 * MiB);
     finally
       Uploaded.Free;
     end;

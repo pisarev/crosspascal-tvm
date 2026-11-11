@@ -157,8 +157,8 @@
     },
     {
       "path": "pascal/QwenVLCpu.pas",
-      "bytes": 30359,
-      "sha256": "261d9e06a4b72f89fde94be3028f6b9f050b18e761310d021a3ed34452987a05"
+      "bytes": 30554,
+      "sha256": "15297566edfbe720c9fb5ce0b51ab345f8c0cc9484f120ec403e837dc7c1c28f"
     },
     {
       "path": "pascal/TVM.CpuGraph.pas",
