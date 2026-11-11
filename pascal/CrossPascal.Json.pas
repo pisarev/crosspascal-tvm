@@ -70,7 +70,7 @@ end;
 
 procedure TCrossJSONObjectHelper.AddPair(const Name, Value: UnicodeString);
 begin
-  Add(UTF8Encode(Name), UTF8Encode(Value));
+  Add(UTF8Encode(Name), Value);
 end;
 
 procedure TCrossJSONObjectHelper.AddPair(const Name: UnicodeString; const Value: TJSONValue);

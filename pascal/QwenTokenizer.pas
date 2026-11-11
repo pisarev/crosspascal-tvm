@@ -14,7 +14,7 @@ interface
 
 uses
   {$IFDEF FPC}SysUtils, Character{$ELSE}System.SysUtils, System.Character{$ENDIF},
-  BPETokenizer;
+  BPETokenizer, CrossPascal.Json;
 
 type
   TQwenTokenizer = class(TCustomBPETokenizer)
@@ -41,6 +41,7 @@ type
     procedure Clear;
   public
     function Load(const Directory: string; const Error: PString): Boolean; override;
+    procedure LoadByteLevelJSON(const Data: TJSONObject);
     function Loaded: Boolean; override;
     function TokenCount: Integer; override;
     function Encode(const Text: UnicodeString): TArray<Integer>; overload; override;
@@ -53,10 +54,11 @@ function NormalizeNFCWide(const Text: UnicodeString): UnicodeString;
 
 implementation
 
-{$IFDEF MSWINDOWS}
 uses
-  {$IFDEF FPC}Windows{$ELSE}Winapi.Windows{$ENDIF};
+  {$IFDEF FPC}Generics.Collections{$ELSE}System.Generics.Collections{$ENDIF}
+  {$IFDEF MSWINDOWS}, {$IFDEF FPC}Windows{$ELSE}Winapi.Windows{$ENDIF}{$ENDIF};
 
+{$IFDEF MSWINDOWS}
 const
   NormalizationC = 1;
 
@@ -198,6 +200,150 @@ end;
 function TQwenTokenizer.Loaded: Boolean;
 begin
   Result := FLoaded;
+end;
+
+procedure TQwenTokenizer.LoadByteLevelJSON(const Data: TJSONObject);
+var
+  Names: TDictionary<UnicodeString, Integer>;
+  Model, Vocab, Entry, Normalizer, Decoder: TJSONObject;
+  Merges, Added, Pair: TJSONArray;
+  Row: TJSONValue;
+  ToByte: array[0..511] of Integer;
+  Used: TArray<Boolean>;
+  I, J, ID, Offset, Next, Code, Left, Right, Joined, Split: Integer;
+  Name, A, B: UnicodeString;
+  Raw: UTF8String;
+
+  function ObjectValue(const Value: TJSONValue): TJSONObject;
+  begin
+    if not (Value is TJSONObject) then raise Exception.Create('Invalid Qwen tokenizer object');
+    Result := TJSONObject(Value);
+  end;
+
+  function ArrayValue(const Value: TJSONValue): TJSONArray;
+  begin
+    if not (Value is TJSONArray) then raise Exception.Create('Invalid Qwen tokenizer array');
+    Result := TJSONArray(Value);
+  end;
+
+  function TokenID(const Value: TJSONValue): Integer;
+  begin
+    if not (Value is TJSONNumber) or not TryStrToInt(JSONValueText(Value), Result) or
+      (Result < 0) or (Result >= Length(FTokenAt)) then
+      raise Exception.Create('Invalid Qwen tokenizer ID');
+  end;
+
+begin
+  Clear;
+  Normalizer := ObjectValue(Data.GetValue('normalizer'));
+  Decoder := ObjectValue(Data.GetValue('decoder'));
+  Model := ObjectValue(Data.GetValue('model'));
+  if (JSONValueText(Normalizer.GetValue('type')) <> 'NFC') or
+    (JSONValueText(Decoder.GetValue('type')) <> 'ByteLevel') or
+    (JSONValueText(Model.GetValue('type')) <> 'BPE') then
+    raise Exception.Create('Expected the NFC byte-level Qwen BPE tokenizer');
+  Vocab := ObjectValue(Model.GetValue('vocab'));
+  Merges := ArrayValue(Model.GetValue('merges'));
+  Added := ArrayValue(Data.GetValue('added_tokens'));
+  if (Vocab.Count < 256) or (Vocab.Count > 1000000) or
+    (Merges.Count > 1000000) or (Added.Count > 10000) then
+    raise Exception.Create('Unsupported Qwen tokenizer size');
+  SetLength(FTokenAt, Vocab.Count + Added.Count);
+  SetLength(Used, Length(FTokenAt));
+  SetLength(FTokenData, Vocab.Count * 8);
+  for I := Low(ToByte) to High(ToByte) do ToByte[I] := -1;
+  Next := 256;
+  for I := 0 to 255 do
+    if ((I >= 33) and (I <= 126)) or ((I >= 161) and (I <= 172)) or (I >= 174) then
+      ToByte[I] := I
+    else
+    begin
+      ToByte[Next] := I;
+      Inc(Next);
+    end;
+  Offset := 0;
+  Names := TDictionary<UnicodeString, Integer>.Create;
+  try
+    for I := 0 to Vocab.Count - 1 do
+    begin
+      Name := JSONObjectName(Vocab, I);
+      ID := TokenID(JSONObjectValue(Vocab, I));
+      if Used[ID] or (Name = '') then raise Exception.Create('Invalid Qwen vocabulary entry');
+      Used[ID] := True;
+      Names.Add(Name, ID);
+      FTokenAt[ID].Offset := Offset;
+      FTokenAt[ID].Length := Length(Name);
+      if Offset + Length(Name) > Length(FTokenData) then
+        SetLength(FTokenData, Offset * 2 + Length(Name));
+      for J := 1 to Length(Name) do
+      begin
+        Code := Ord(Name[J]);
+        if (Code > High(ToByte)) or (ToByte[Code] < 0) then
+          raise Exception.Create('Invalid Qwen byte-level vocabulary character');
+        FTokenData[Offset] := ToByte[Code];
+        Inc(Offset);
+      end;
+      if Length(Name) = 1 then FSingle[FTokenData[Offset - 1]] := ID;
+    end;
+    SetLength(FTokenData, Offset);
+    for I := 0 to 255 do
+      if FSingle[I] < 0 then raise Exception.Create('Qwen vocabulary does not cover every byte');
+    ReserveMerges(Merges.Count);
+    for I := 0 to Merges.Count - 1 do
+    begin
+      Row := Merges.Items[I];
+      if Row is TJSONArray then
+      begin
+        Pair := TJSONArray(Row);
+        if Pair.Count <> 2 then raise Exception.Create('Invalid Qwen BPE merge');
+        A := JSONValueText(Pair.Items[0]);
+        B := JSONValueText(Pair.Items[1]);
+      end
+      else
+      begin
+        Name := JSONValueText(Row);
+        Split := Pos(' ', Name);
+        if Split <= 1 then raise Exception.Create('Invalid Qwen BPE merge');
+        A := Copy(Name, 1, Split - 1);
+        B := Copy(Name, Split + 1, Length(Name));
+      end;
+      if not Names.TryGetValue(A, Left) then
+        raise Exception.CreateFmt('Unknown left Qwen BPE token at rank %d (%d characters)', [I, Length(A)]);
+      if not Names.TryGetValue(B, Right) then
+        raise Exception.CreateFmt('Unknown right Qwen BPE token at rank %d (%d characters)', [I, Length(B)]);
+      Name := A + B;
+      if not Names.TryGetValue(Name, Joined) then
+      begin
+        Row := Vocab.GetValue(Name);
+        if Row = nil then
+          raise Exception.CreateFmt('Unknown joined Qwen BPE token at rank %d (%d characters)', [I, Length(Name)]);
+        Joined := TokenID(Row);
+      end;
+      Put(Left, Right, Joined, I);
+    end;
+    SetLength(FSpecials, Added.Count);
+    for I := 0 to Added.Count - 1 do
+    begin
+      Entry := ObjectValue(Added.Items[I]);
+      ID := TokenID(Entry.GetValue('id'));
+      FSpecials[I].ID := ID;
+      FSpecials[I].Text := JSONValueText(Entry.GetValue('content'));
+      if JSONIsTrue(Entry.GetValue('special')) then
+        FTokenAt[ID].Length := 0
+      else
+      begin
+        Raw := UTF8Encode(FSpecials[I].Text);
+        Offset := Length(FTokenData);
+        FTokenAt[ID].Offset := Offset;
+        FTokenAt[ID].Length := Length(Raw);
+        SetLength(FTokenData, Offset + Length(Raw));
+        if Raw <> '' then Move(Raw[1], FTokenData[Offset], Length(Raw));
+      end;
+    end;
+  finally
+    Names.Free;
+  end;
+  FLoaded := True;
 end;
 
 function TQwenTokenizer.TokenCount: Integer;
@@ -418,6 +564,7 @@ function TQwenTokenizer.DecodeText(const Ids: array of Integer;
   const CompleteOnly: Boolean): UnicodeString;
 var
   Raw: TBytes;
+  Encoded: UTF8String;
   Total, At, I, Width: Integer;
 begin
   RequireLoaded;
@@ -456,7 +603,9 @@ begin
         SetLength(Raw, At);
     end;
   end;
-  Result := TEncoding.UTF8.GetString(Raw);
+  SetLength(Encoded, Length(Raw));
+  if Length(Raw) > 0 then Move(Raw[0], Encoded[1], Length(Raw));
+  Result := UTF8Decode(Encoded);
 end;
 
 end.

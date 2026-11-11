@@ -1031,11 +1031,6 @@ begin
   Result := False;
   TensorHandle := nil;
   ShapeObj := nil;
-  if Length(Shape) < 1 then
-  begin
-    if Assigned(Error) then Error^ := 'TTVMRuntime.AllocDeviceTensor: empty shape';
-    Exit;
-  end;
   SetLength(ShapeArgs, Length(Shape));
   for I := 0 to High(Shape) do
     ShapeArgs[I] := AnyInt(Shape[I]);

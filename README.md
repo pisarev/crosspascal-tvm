@@ -18,7 +18,7 @@ The supplied Qwen CUDA profile uses Qwen2.5-0.5B-Instruct with all 24 layers, FP
 | `recipes/TVMBuildOptions.txt` | Historical CPU build-options template; it is separate from the supplied CUDA kit |
 | `docs/PASCAL-API-NOTES.md` | Ownership, tensor layout and runtime-lifetime requirements |
 
-Install the four runtime DLLs using [the pinned wheel installer](scripts/install_tvm_windows.py). It uses the official Apache TVM 0.26.0 and TVM FFI 0.1.14 Windows x64 wheels. For the Windows SDK, pass `--site-packages` and the [additional Python wheel lock](runtime/WINDOWS-PYTHON-WHEELS.json) with `--dependencies`, as shown in the SDK setup guide. Keep the four DLLs together. The runtime requires the Microsoft Visual C++ x64 runtime. CUDA execution also requires a compatible NVIDIA driver.
+Use the four native runtime DLLs supplied with the Windows x64 SDK. Keep them together. The runtime requires the Microsoft Visual C++ x64 runtime. CUDA also requires a compatible NVIDIA driver.
 
 The retained FFI package version and its C ABI version are different identifiers: the pinned DLL reports C ABI `0.1.14`. The consumers check both the exact DLL bytes and that ABI tuple. CPU vision loads the first three runtime DLLs and does not initialize CUDA.
 

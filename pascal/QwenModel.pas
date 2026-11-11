@@ -8,6 +8,7 @@
 
 unit QwenModel;
 
+{$IFDEF FPC}{$MODE DELPHI}{$ENDIF}
 {$POINTERMATH ON}
 
 interface
@@ -39,7 +40,8 @@ type
     EmbedFunc: TTVMFFIObjectHandle;
     PrefillFunc: TTVMFFIObjectHandle;
     DecodeFunc: TTVMFFIObjectHandle;
-    function Load(const ADirectory: string; const Error: PString): Boolean;
+    function Load(const ADirectory: string; const Error: PString;
+      const LibraryName: string = ''): Boolean;
     procedure Unload;
     function CreateCache(const MaxBatch, MaxTotal, Chunk, Page: Int64;
       const Error: PString): Boolean;
@@ -98,9 +100,12 @@ end;
 function ReadChunk(const Path: string; const Offset, Count: Int64; const Target: Pointer): Boolean;
 var
   Stream: TFileStream;
+  ReadBytes: Integer;
+  Remaining: Int64;
+  Dest: PByte;
 begin
   Result := False;
-  if (Offset < 0) or (Count < 0) or (Count > High(Integer)) or ((Count > 0) and not Assigned(Target)) then
+  if (Offset < 0) or (Count < 0) or ((Count > 0) and not Assigned(Target)) then
     Exit;
   try
     Stream := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
@@ -108,9 +113,17 @@ begin
       if (Offset > Stream.Size) or (Count > Stream.Size - Offset) then
         Exit;
       Stream.Position := Offset;
-      if Count = 0 then
-        Exit(True);
-      Result := Stream.Read(Target^, Integer(Count)) = Count;
+      Dest := PByte(Target);
+      Remaining := Count;
+      while Remaining > 0 do
+      begin
+        ReadBytes := 64 * 1024 * 1024;
+        if Remaining < ReadBytes then ReadBytes := Integer(Remaining);
+        if Stream.Read(Dest^, ReadBytes) <> ReadBytes then Exit;
+        Inc(Dest, ReadBytes);
+        Dec(Remaining, ReadBytes);
+      end;
+      Result := True;
     finally
       Stream.Free;
     end;
@@ -244,9 +257,10 @@ begin
     Count * SizeOf(Single), Error);
 end;
 
-function TQwenModel.Load(const ADirectory: string; const Error: PString): Boolean;
+function TQwenModel.Load(const ADirectory: string; const Error: PString;
+  const LibraryName: string): Boolean;
 var
-  DataType, Target: string;
+  DataType, Target, ModuleFile: string;
   Raw: PDLTensor;
   Staging: Pointer;
   Once: TTVMFFIObjectHandle;
@@ -319,7 +333,9 @@ begin
   if not TTVMRuntime.CallGlobal('ffi.Array', Args, Res, Error) then
     Exit;
   ParamsArray := Res.VObj;
-  if not TTVMRuntime.ModuleLoadFromFile(Directory + 'qwen2-' + Target + '.dll',
+  ModuleFile := LibraryName;
+  if ModuleFile = '' then ModuleFile := 'qwen2-' + Target + '.dll';
+  if not TTVMRuntime.ModuleLoadFromFile(Directory + ModuleFile,
     'dll', ModuleHandle, Error) then
       Exit;
   if not TTVMRuntime.ModuleGetFunction(ModuleHandle, 'vm_load_executable', True, Once, Error) then

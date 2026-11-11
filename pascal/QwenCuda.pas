@@ -105,6 +105,9 @@ type
 
 function DefaultQwenGenerationOptions: TQwenGenerationOptions;
 procedure ValidateQwenGenerationOptions(const Options: TQwenGenerationOptions);
+procedure InitializeRuntime(const Directory: string; const NeedCuda: Boolean = True);
+function SampleToken(const Logits: TArray<Single>; const Seen: TArray<Boolean>;
+  const Options: TQwenGenerationOptions; var State: Cardinal): Integer;
 function RunQwenCuda(const BundleDirectory, RuntimeDirectory, Prompt: string;
   const MaxNewTokens: Int64; const Progress: TQwenProgress = nil;
   const StopRequested: TQwenStopRequested = nil): TQwenCudaResult; overload;
@@ -731,32 +734,46 @@ begin
   Result := ExpandFileName(Result);
 end;
 
-procedure InitializeRuntime(const Directory: string);
+procedure InitializeRuntime(const Directory: string; const NeedCuda: Boolean);
 var
   Handles: array[0..3] of HMODULE;
-  I: Integer;
+  I, Last: Integer;
   Version: TTVMFFIVersion;
+
+  function LoadRuntimeFile(const FileName: string): HMODULE;
+  begin
+    Require(GetModuleHandleW(PWideChar(FileName)) = 0,
+      'A TVM DLL is already loaded outside the explicit runtime loader.');
+    Result := LoadLibraryExW(PWideChar(Directory + FileName), 0, DLLSearchFlags);
+    Require(Result <> 0, Format('Cannot load %s: %s', [FileName, SysErrorMessage(GetLastError)]));
+    if not SameText(ModulePath(Result), Directory + FileName) then
+    begin
+      FreeLibrary(Result);
+      raise EQwenCuda.Create('A TVM DLL resolved outside the selected runtime directory.');
+    end;
+  end;
+
 begin
   Require(not RuntimeInitializationFailed, 'Runtime initialization failed earlier. Restart the application.');
   if LoadedRuntimeDirectory <> '' then
   begin
     Require(SameText(LoadedRuntimeDirectory, Directory),
       'Restart the application before selecting a different runtime.');
+    if NeedCuda and (TTVMRuntime.TModule.CudaRuntimeHandle = 0) then
+      TTVMRuntime.TModule.CudaRuntimeHandle := LoadRuntimeFile(RuntimeNames[3]);
     Exit;
   end;
   Require((TTVMRuntime.TModule.Handle = 0) and (TTVMRuntime.TModule.RuntimeHandle = 0),
     'TVM was initialized before the selected runtime was checked.');
   RuntimeInitializationFailed := True;
-  for I := 0 to High(RuntimeNames) do
-    Require(GetModuleHandleW(PWideChar(RuntimeNames[I])) = 0,
-      'A TVM DLL is already loaded outside the explicit runtime loader.');
-  for I := 0 to High(RuntimeNames) do
-  begin
-    Handles[I] := LoadLibraryExW(PWideChar(Directory + RuntimeNames[I]), 0, DLLSearchFlags);
-    Require(Handles[I] <> 0, Format('Cannot load %s: %s',
-      [RuntimeNames[I], SysErrorMessage(GetLastError)]));
-    Require(SameText(ModulePath(Handles[I]), Directory + RuntimeNames[I]),
-      'A TVM DLL resolved outside the selected runtime directory.');
+  FillChar(Handles, SizeOf(Handles), 0);
+  Last := 2;
+  if NeedCuda then Last := 3;
+  try
+    for I := 0 to Last do Handles[I] := LoadRuntimeFile(RuntimeNames[I]);
+  except
+    for I := Last downto 0 do if Handles[I] <> 0 then FreeLibrary(Handles[I]);
+    raise;
   end;
   TTVMRuntime.TModule.Handle := Handles[0];
   TTVMRuntime.TModule.RuntimeHandle := Handles[1];

@@ -13,7 +13,8 @@ unit LanguageModel;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, QwenCuda, GemmaProcess;
+  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, QwenCuda, Gemma3nNative, Gemma2Cpu,
+  QwenVLCpu, Qwen2Native;
 
 type
   TLanguageOptions = TQwenGenerationOptions;
@@ -22,6 +23,7 @@ type
 
   TLanguageCapabilities = record
     Architecture: string;
+    Schema: string;
     Device: string;
     ContextTokens: Integer;
     SupportsImages: Boolean;
@@ -32,7 +34,10 @@ type
   TLanguageModel = class
   private
     FQwen: TQwenCudaSession;
-    FGemma: TGemmaProcess;
+    FQwen2Native: TQwen2Native;
+    FGemma3n: TGemma3nNative;
+    FGemma2Cpu: TGemma2Cpu;
+    FQwenVLCpu: TQwenVLCpu;
     FBundle: string;
     FRuntime: string;
     FLoaded: Boolean;
@@ -40,9 +45,6 @@ type
     FOnText: TLanguageProgress;
     FOnStatus: TLanguageProgress;
     FShouldStop: TLanguageStop;
-    function GemmaRequest(const Command, Prompt: string; const Options: TLanguageOptions;
-      const Images: array of string): string;
-    procedure CloseWorker;
   public
     constructor Create;
     destructor Destroy; override;
@@ -63,7 +65,7 @@ function DefaultLanguageOptions: TLanguageOptions;
 implementation
 
 uses
-  {$IFDEF FPC}Classes, Windows{$ELSE}System.Classes, Winapi.Windows{$ENDIF},
+  {$IFDEF FPC}Classes{$ELSE}System.Classes{$ENDIF},
   CrossPascal.Json;
 
 function DefaultLanguageOptions: TLanguageOptions;
@@ -103,6 +105,7 @@ begin
     try
       if not (Value is TJSONObject) then raise Exception.Create('Invalid model.json');
       Obj := TJSONObject(Value);
+      Result.Schema := TextField(Obj, 'schema');
       Result.Architecture := TextField(Obj, 'architecture');
       if Result.Architecture = '' then Result.Architecture := TextField(Obj, 'model_type');
       LibraryName := TextField(Obj, 'library');
@@ -113,7 +116,8 @@ begin
       Result.ContextTokens := StrToIntDef(TextField(Obj, 'context'), 0);
       if Result.ContextTokens = 0 then
         Result.ContextTokens := StrToIntDef(TextField(Obj, 'context_window_size'), 0);
-      if Result.Architecture = 'qwen2' then Result.ContextTokens := QwenDefaultContextSize;
+      if (Result.Architecture = 'qwen2') and (Result.Schema <> 'crosspascal.qwen2.text.v1') then
+        Result.ContextTokens := QwenDefaultContextSize;
       Result.Device := 'CPU';
       if (Result.Architecture = 'qwen2') or (TextField(Obj, 'backend') = 'TVM CUDA W8A32') then
         Result.Device := 'CUDA';
@@ -137,75 +141,6 @@ begin
   end;
 end;
 
-function TLanguageModel.GemmaRequest(const Command, Prompt: string; const Options: TLanguageOptions;
-  const Images: array of string): string;
-var
-  Line, Event, ErrorText, ID: string;
-  Value, Payload: TJSONValue;
-  Obj: TJSONObject;
-  Code: Cardinal;
-  Stopped, Done: Boolean;
-begin
-  Result := '';
-  FGemma.Request(Command, FBundle, Prompt, Options, Images);
-  ID := IntToStr(FGemma.RequestID);
-  Stopped := False;
-  Done := False;
-  ErrorText := '';
-  while not Done do
-  begin
-    if not Stopped and Assigned(FShouldStop) and FShouldStop() then
-    begin
-      FGemma.Stop;
-      Stopped := True;
-    end;
-    if FGemma.ReadLine(Line) then
-    begin
-      if (Line = '') or (Line[1] <> '{') then Continue;
-      Value := ParseCrossJSON(Line);
-      try
-        if not (Value is TJSONObject) then raise Exception.Create('Invalid worker event');
-        Obj := TJSONObject(Value);
-        Event := TextField(Obj, 'event');
-        if Event = 'fatal' then raise Exception.Create(TextField(Obj, 'message'));
-        if TextField(Obj, 'id') <> ID then Continue;
-        if Event = 'text' then
-        begin
-          if Assigned(FOnText) then FOnText(TextField(Obj, 'text'));
-        end
-        else if Event = 'status' then
-          begin
-            if Assigned(FOnStatus) then FOnStatus(TextField(Obj, 'text'));
-          end
-          else if Event = 'loaded' then
-            begin
-              FInfo.ContextTokens := StrToIntDef(TextField(Obj, 'context'), FInfo.ContextTokens);
-              if Assigned(FOnStatus) then FOnStatus('Model loaded on ' + TextField(Obj, 'gpu'));
-            end
-            else if Event = 'result' then
-              begin
-                Payload := Obj.GetValue('result');
-                if not (Payload is TJSONObject) then
-                  raise Exception.Create('Invalid generation result');
-                Result := TJSONObject(Payload).ToJSON;
-              end
-              else if Event = 'error' then
-                  ErrorText := TextField(Obj, 'message')
-                else if Event = 'done' then
-                    Done := True;
-      finally
-        Value.Free;
-      end;
-    end
-    else begin
-      if FGemma.HasExited(Code) then
-        raise Exception.Create('Model runtime exited unexpectedly: ' + UIntToStr(Code));
-      Sleep(10);
-    end;
-  end;
-  if ErrorText <> '' then raise Exception.Create(ErrorText);
-end;
-
 procedure TLanguageModel.Load(const Bundle, RuntimeRoot: string);
 var
   Info: TQwenCudaResult;
@@ -220,14 +155,34 @@ begin
       if not FileExists(IncludeTrailingPathDelimiter(FRuntime) + 'tvm_runtime_cuda.dll') then
         FRuntime := IncludeTrailingPathDelimiter(FRuntime) +
           'crosspascal-tvm\runtime\windows-x64-cuda';
-      Info := FQwen.Load(FBundle, FRuntime, FOnStatus);
-      FInfo.ContextTokens := Info.ContextTokens;
+      if FInfo.Schema = 'crosspascal.qwen2.text.v1' then
+      begin
+        FQwen2Native := TQwen2Native.Create(FBundle, FRuntime, FOnStatus);
+        FInfo.ContextTokens := FQwen2Native.ContextTokens;
+      end
+      else begin
+        Info := FQwen.Load(FBundle, FRuntime, FOnStatus);
+        FInfo.ContextTokens := Info.ContextTokens;
+      end;
     end
-    else begin
-      FGemma := TGemmaProcess.Create;
-      FGemma.Start(FRuntime);
-      GemmaRequest('load', '', DefaultLanguageOptions, []);
-    end;
+    else if FInfo.Architecture = 'gemma3n' then
+      begin
+        FGemma3n := TGemma3nNative.Create(FBundle, FRuntime, FOnStatus);
+        FInfo.ContextTokens := FGemma3n.ContextTokens;
+      end
+      else if (FInfo.Architecture = 'gemma2') and (FInfo.Device = 'CPU') then
+        begin
+          FGemma2Cpu := TGemma2Cpu.Create(FBundle, FRuntime, FOnStatus);
+          FInfo.ContextTokens := FGemma2Cpu.ContextTokens;
+        end
+        else if (FInfo.Architecture = 'qwen2_5_vl') and (FInfo.Device = 'CPU') then
+          begin
+            FQwenVLCpu := TQwenVLCpu.Create(FBundle, FRuntime, FOnStatus);
+            FInfo.ContextTokens := FQwenVLCpu.ContextTokens;
+          end
+          else
+            raise Exception.CreateFmt('No native runtime is available for %s on %s.',
+              [FInfo.Architecture, FInfo.Device]);
     FLoaded := True;
   except
     Unload;
@@ -245,37 +200,30 @@ begin
     raise Exception.Create(FInfo.ImageExplanation);
   if FInfo.Architecture = 'qwen2' then
   begin
-    Answer := FQwen.Run(FBundle, FRuntime, Prompt, Options, FOnStatus, FShouldStop, FOnText);
+    if FQwen2Native <> nil then
+      Answer := FQwen2Native.Generate(Prompt, Options, FOnStatus, FOnText, FShouldStop)
+    else
+      Answer := FQwen.Run(FBundle, FRuntime, Prompt, Options, FOnStatus, FShouldStop, FOnText);
     Result := QwenResultJSON(Answer);
   end
-  else
-    Result := GemmaRequest('generate', Prompt, Options, Images);
-end;
-
-procedure TLanguageModel.CloseWorker;
-var
-  Code: Cardinal;
-  Line: string;
-begin
-  if FGemma = nil then Exit;
-  if not FGemma.HasExited(Code) then
-  begin
-    FGemma.RequestClose;
-    while not FGemma.HasExited(Code) do
-    begin
-      while FGemma.ReadLine(Line) do;
-      Sleep(10);
-    end;
-  end;
-  FreeAndNil(FGemma);
-  if Code <> 0 then raise Exception.Create('Model runtime shutdown failed: ' + UIntToStr(Code));
+  else if FGemma3n <> nil then
+      Result := FGemma3n.Generate(Prompt, Options, Images, FOnStatus, FOnText, FShouldStop)
+    else if FGemma2Cpu <> nil then
+        Result := FGemma2Cpu.Generate(Prompt, Options, FOnStatus, FOnText, FShouldStop)
+      else if FQwenVLCpu <> nil then
+          Result := FQwenVLCpu.Generate(Prompt, Options, Images, FOnStatus, FOnText, FShouldStop)
+        else
+          raise Exception.Create('The native model session is unavailable.');
 end;
 
 procedure TLanguageModel.Unload;
 begin
   FLoaded := False;
   if FQwen <> nil then FQwen.Unload;
-  CloseWorker;
+  FreeAndNil(FQwen2Native);
+  FreeAndNil(FGemma3n);
+  FreeAndNil(FGemma2Cpu);
+  FreeAndNil(FQwenVLCpu);
 end;
 
 destructor TLanguageModel.Destroy;
@@ -284,7 +232,6 @@ begin
     Unload;
   finally
     FQwen.Free;
-    FGemma.Free;
     inherited;
   end;
 end;
