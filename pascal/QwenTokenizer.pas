@@ -2,7 +2,7 @@
 {                                                                            }
 { QwenTokenizer                                                              }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -230,7 +230,7 @@ var
   begin
     if not (Value is TJSONNumber) or not TryStrToInt(JSONValueText(Value), Result) or
       (Result < 0) or (Result >= Length(FTokenAt)) then
-      raise Exception.Create('Invalid Qwen tokenizer ID');
+        raise Exception.Create('Invalid Qwen tokenizer ID');
   end;
 
 begin
@@ -241,13 +241,13 @@ begin
   if (JSONValueText(Normalizer.GetValue('type')) <> 'NFC') or
     (JSONValueText(Decoder.GetValue('type')) <> 'ByteLevel') or
     (JSONValueText(Model.GetValue('type')) <> 'BPE') then
-    raise Exception.Create('Expected the NFC byte-level Qwen BPE tokenizer');
+      raise Exception.Create('Expected the NFC byte-level Qwen BPE tokenizer');
   Vocab := ObjectValue(Model.GetValue('vocab'));
   Merges := ArrayValue(Model.GetValue('merges'));
   Added := ArrayValue(Data.GetValue('added_tokens'));
   if (Vocab.Count < 256) or (Vocab.Count > 1000000) or
     (Merges.Count > 1000000) or (Added.Count > 10000) then
-    raise Exception.Create('Unsupported Qwen tokenizer size');
+      raise Exception.Create('Unsupported Qwen tokenizer size');
   SetLength(FTokenAt, Vocab.Count + Added.Count);
   SetLength(Used, Length(FTokenAt));
   SetLength(FTokenData, Vocab.Count * 8);
@@ -256,8 +256,7 @@ begin
   for I := 0 to 255 do
     if ((I >= 33) and (I <= 126)) or ((I >= 161) and (I <= 172)) or (I >= 174) then
       ToByte[I] := I
-    else
-    begin
+    else begin
       ToByte[Next] := I;
       Inc(Next);
     end;
@@ -299,8 +298,7 @@ begin
         A := JSONValueText(Pair.Items[0]);
         B := JSONValueText(Pair.Items[1]);
       end
-      else
-      begin
+      else begin
         Name := JSONValueText(Row);
         Split := Pos(' ', Name);
         if Split <= 1 then raise Exception.Create('Invalid Qwen BPE merge');
@@ -316,7 +314,8 @@ begin
       begin
         Row := Vocab.GetValue(Name);
         if Row = nil then
-          raise Exception.CreateFmt('Unknown joined Qwen BPE token at rank %d (%d characters)', [I, Length(Name)]);
+          raise Exception.CreateFmt('Unknown joined Qwen BPE token at rank %d (%d characters)',
+            [I, Length(Name)]);
         Joined := TokenID(Row);
       end;
       Put(Left, Right, Joined, I);
@@ -330,8 +329,7 @@ begin
       FSpecials[I].Text := JSONValueText(Entry.GetValue('content'));
       if JSONIsTrue(Entry.GetValue('special')) then
         FTokenAt[ID].Length := 0
-      else
-      begin
+      else begin
         Raw := UTF8Encode(FSpecials[I].Text);
         Offset := Length(FTokenData);
         FTokenAt[ID].Offset := Offset;

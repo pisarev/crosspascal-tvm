@@ -2,7 +2,7 @@
 {                                                                            }
 { Gemma3nNative                                                              }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -420,8 +420,8 @@ begin
         FSoftImage := FTokenizer.ID('<image_soft_token>');
         RequireCpu((FStartImage >= 0) and (FEndImage >= 0) and (FSoftImage >= 0),
           'Gemma 3n tokenizer does not contain the vision markers');
-        FVision := TGemma3nVision.Create(FFolder, NativeDir + 'crosscv.dll', FTables[0].Width, FCuda,
-          VisionManifest);
+        FVision := TGemma3nVision.Create(FFolder, NativeDir + 'crosscv.dll', FTables[0].Width,
+          FCuda, VisionManifest);
       end;
     finally
       RecordData.Free;

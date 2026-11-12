@@ -2,7 +2,7 @@
 {                                                                            }
 { QwenModel                                                                  }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -335,9 +335,8 @@ begin
   ParamsArray := Res.VObj;
   ModuleFile := LibraryName;
   if ModuleFile = '' then ModuleFile := 'qwen2-' + Target + '.dll';
-  if not TTVMRuntime.ModuleLoadFromFile(Directory + ModuleFile,
-    'dll', ModuleHandle, Error) then
-      Exit;
+  if not TTVMRuntime.ModuleLoadFromFile(Directory + ModuleFile, 'dll', ModuleHandle, Error) then
+    Exit;
   if not TTVMRuntime.ModuleGetFunction(ModuleHandle, 'vm_load_executable', True, Once, Error) then
     Exit;
   try

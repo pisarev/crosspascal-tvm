@@ -2,7 +2,7 @@
 {                                                                            }
 { QwenVLCpu                                                                  }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -16,7 +16,8 @@ interface
 uses
   {$IFDEF FPC}SysUtils, Classes, Generics.Collections
   {$ELSE}System.SysUtils, System.Classes, System.Generics.Collections{$ENDIF},
-  CrossPascal.Json, DLPack, QwenTokenizer, TVM, TVM.CpuGraph, TVM.CudaExecution, QwenCuda;
+  CrossPascal.Json, DLPack, QwenTokenizer, TVM, TVM.CpuGraph, TVM.CudaExecution,
+  QwenCuda;
 
 type
   TQwenVLCpu = class
@@ -209,8 +210,10 @@ begin
   RequireCpu((Hashes.GetValue(LibraryName) <> nil) and (Hashes.GetValue(ModelText(Spec.GetValue('onnx'))) <> nil),
     'Qwen-VL graph hashes are incomplete');
   Params := ModelObject(Spec.GetValue('parameters'), 'graph parameters');
-  if FCuda = nil then SetLength(Graph.Weights, Inputs.Count - InputCount)
-  else SetLength(Graph.Parameters, Inputs.Count - InputCount);
+  if FCuda = nil then
+    SetLength(Graph.Weights, Inputs.Count - InputCount)
+  else
+    SetLength(Graph.Parameters, Inputs.Count - InputCount);
   for I := InputCount to Inputs.Count - 1 do
   begin
     Name := ModelText(Inputs.Items[I]);
@@ -366,7 +369,8 @@ begin
         ModelObject(ModelObject(Data, 'parameters').GetValue('weights'), 'weights').GetValue('model.language_model.embed_tokens.weight'),
         'embedding table'
       ),
-      Shape, Bits
+      Shape,
+      Bits
     );
     RequireCpu((Bits = 32) and (Length(Shape) = 2) and (Shape[0] <= 1000000) and (Shape[1] <= 65536),
       'Invalid Qwen-VL embedding table');
@@ -696,8 +700,10 @@ begin
         ImageReport.AddPair('sha256', Hash);
         ImageReport.AddPair('reused', JSONBoolean(Reused));
         ImageReport.AddPair('seconds', JSONFloat((GetTickCount64 - ImageStarted) / 1000.0));
-        if FCuda = nil then ImageReport.AddPair('backend', FBackend)
-        else ImageReport.AddPair('backend', 'TVM CUDA FP32');
+        if FCuda = nil then
+          ImageReport.AddPair('backend', FBackend)
+        else
+          ImageReport.AddPair('backend', 'TVM CUDA FP32');
         Input.AppendText([FImageStart]);
         Input.AppendImage(FImageToken, FSoftTokens, FSize div (FPatch * FMerge), FWidth, Features);
         Input.AppendText([FImageEnd]);

@@ -1,4 +1,10 @@
-{ Copyright © 2026 Yuriy Pisarev. MIT license; see LICENSE. }
+{ ************************************************************************** }
+{                                                                            }
+{ CrossPascal.SentencePiece                                                  }
+{                                                                            }
+{ Copyright © 2026 Yuriy Pisarev                                             }
+{                                                                            }
+{ ************************************************************************** }
 
 unit CrossPascal.SentencePiece;
 
@@ -15,10 +21,10 @@ type
     TLoad = function(Bytes: Pointer; Size: Integer): Pointer; cdecl;
     TFree = procedure(Processor: Pointer); cdecl;
     TID = function(Processor: Pointer; Piece: PAnsiChar): Integer; cdecl;
-    TEncode = function(Processor: Pointer; Text: PAnsiChar; Size: Integer;
-      Output: PInteger; Capacity: Integer): Integer; cdecl;
-    TDecode = function(Processor: Pointer; IDs: PInteger; Count: Integer;
-      Output: PAnsiChar; Capacity: Integer): Integer; cdecl;
+    TEncode = function(Processor: Pointer; Text: PAnsiChar; Size: Integer; Output: PInteger;
+      Capacity: Integer): Integer; cdecl;
+    TDecode = function(Processor: Pointer; IDs: PInteger; Count: Integer; Output: PAnsiChar;
+      Capacity: Integer): Integer; cdecl;
   private
     FLibrary: HMODULE;
     FProcessor: Pointer;
@@ -70,7 +76,8 @@ begin
     Stream.Free;
   end;
   FProcessor := Load(Pointer(Bytes), Length(Bytes));
-  if FProcessor = nil then raise Exception.Create('Could not read SentencePiece model: ' + ModelPath);
+  if FProcessor = nil then
+    raise Exception.Create('Could not read SentencePiece model: ' + ModelPath);
 end;
 
 destructor TSentencePiece.Destroy;
@@ -97,7 +104,7 @@ begin
   SetLength(Result, Count);
   if (Count > 0) and (FEncode(FProcessor, PAnsiChar(Bytes), Length(Bytes),
     Pointer(Result), Count) <> Count) then
-    raise Exception.Create('SentencePiece token count changed');
+      raise Exception.Create('SentencePiece token count changed');
 end;
 
 function TSentencePiece.Decode(const IDs: array of Integer): string;

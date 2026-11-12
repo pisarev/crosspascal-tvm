@@ -1,4 +1,10 @@
-{ Copyright © 2026 Yuriy Pisarev. MIT license; see LICENSE. }
+{ ************************************************************************** }
+{                                                                            }
+{ TVM.ImageInput                                                             }
+{                                                                            }
+{ Copyright © 2026 Yuriy Pisarev                                             }
+{                                                                            }
+{ ************************************************************************** }
 
 unit TVM.ImageInput;
 
@@ -18,8 +24,8 @@ function ResizeColorImage(const Image: IMat; const Width, Height: Integer;
 implementation
 
 uses
-  {$IFDEF FPC}Classes, Math{$ELSE}System.Classes, System.Math{$ENDIF},
-  OpenCV, OpenCVTypes, OpenCVConsts, TVM.CpuGraph;
+  {$IFDEF FPC}Classes, Math{$ELSE}System.Classes, System.Math{$ENDIF}, OpenCV, OpenCVTypes,
+  OpenCVConsts, TVM.CpuGraph;
 
 type
   TResizeRow = record
@@ -51,8 +57,8 @@ begin
   RequireCpu(CV.ImgCodecs.ImDecode(Pointer(Bytes), Length(Bytes), IMREAD_COLOR, @Raw),
     'Could not decode the image');
   Result := WrapMat(Raw);
-  RequireCpu(not Result.IsEmpty and (Result.Channels = 3) and
-    (Int64(Result.Width) * Result.Height <= 64000000), 'Expected a color image of at most 64 megapixels');
+  RequireCpu(not Result.IsEmpty and (Result.Channels = 3) and (Int64(Result.Width) * Result.Height <= 64000000),
+    'Expected a color image of at most 64 megapixels');
 end;
 
 function CubicWeight(const Distance: Double): Double;
@@ -60,9 +66,12 @@ var
   X: Double;
 begin
   X := Abs(Distance);
-  if X < 1 then Result := ((1.5 * X - 2.5) * X) * X + 1
-  else if X < 2 then Result := (((-0.5 * X + 2.5) * X - 4) * X) + 2
-  else Result := 0;
+  if X < 1 then
+    Result := ((1.5 * X - 2.5) * X) * X + 1
+  else if X < 2 then
+      Result := (((-0.5 * X + 2.5) * X - 4) * X) + 2
+    else
+      Result := 0;
 end;
 
 function MakeResizeRows(const InputSize, OutputSize: Integer; const Bicubic: Boolean): TArray<TResizeRow>;
@@ -90,16 +99,20 @@ begin
     for J := 0 to High(Coefficients) do
     begin
       Weight := (J + First + 0.5 - Center) / FilterScale;
-      if Bicubic then Weight := CubicWeight(Weight)
-      else Weight := Max(0.0, 1.0 - Abs(Weight));
+      if Bicubic then
+        Weight := CubicWeight(Weight)
+      else
+        Weight := Max(0.0, 1.0 - Abs(Weight));
       Coefficients[J] := Weight;
       Sum := Sum + Weight;
     end;
     for J := 0 to High(Coefficients) do
     begin
       Weight := Coefficients[J] * UnitWeight / Sum;
-      if Weight >= 0 then Result[I].Weights[J] := Trunc(Weight + 0.5)
-      else Result[I].Weights[J] := Trunc(Weight - 0.5);
+      if Weight >= 0 then
+        Result[I].Weights[J] := Trunc(Weight + 0.5)
+      else
+        Result[I].Weights[J] := Trunc(Weight - 0.5);
     end;
   end;
 end;
@@ -114,8 +127,10 @@ var
   Line: PByte;
   X, Y, C, I, Sum: Integer;
 begin
-  RequireCpu((Width > 0) and (Height > 0) and (Width <= 4096) and (Height <= 4096) and
-    (Int64(Image.Height) * Width * 3 <= 512 * 1024 * 1024), 'Image resize exceeds the working memory limit');
+  RequireCpu(
+    (Width > 0) and (Height > 0) and (Width <= 4096) and (Height <= 4096) and (Int64(Image.Height) * Width * 3 <= 512 * 1024 * 1024),
+    'Image resize exceeds the working memory limit'
+  );
   XWeights := MakeResizeRows(Image.Width, Width, Bicubic);
   YWeights := MakeResizeRows(Image.Height, Height, Bicubic);
   SetLength(Horizontal, Image.Height * Width * 3);

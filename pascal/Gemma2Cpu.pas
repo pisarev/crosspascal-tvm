@@ -2,7 +2,7 @@
 {                                                                            }
 { Gemma2Cpu                                                                  }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -78,7 +78,7 @@ begin
     RequireCpu((ModelText(Model.GetValue('model_type')) = 'gemma2') and
       ((Target = 'cpu') or (Target = 'cuda')) and
       (((Target = 'cpu') and (LibraryName = 'gemma2-cpu.dll')) or
-        ((Target = 'cuda') and (LibraryName <> ''))), 'Expected a Gemma 2 TVM bundle');
+      ((Target = 'cuda') and (LibraryName <> ''))), 'Expected a Gemma 2 TVM bundle');
     FDevice := UpperCase(Target);
     FBackend := 'TVM LLVM CPU FP32 (experimental Gemma 2)';
     FContext := ModelInt(Model.GetValue('context_window_size'), 'context window');

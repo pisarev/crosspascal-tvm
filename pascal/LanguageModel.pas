@@ -2,7 +2,7 @@
 {                                                                            }
 { LanguageModel                                                              }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -65,8 +65,7 @@ function DefaultLanguageOptions: TLanguageOptions;
 implementation
 
 uses
-  {$IFDEF FPC}Classes{$ELSE}System.Classes{$ENDIF},
-  CrossPascal.Json, TVM.CpuGraph;
+  {$IFDEF FPC}Classes{$ELSE}System.Classes{$ENDIF}, CrossPascal.Json, TVM.CpuGraph;
 
 function DefaultLanguageOptions: TLanguageOptions;
 begin
@@ -126,15 +125,16 @@ begin
       if (Result.Architecture = 'qwen2_5_vl') and
         (TextField(Obj, 'schema') = 'crosspascal.qwen2_5_vl.v1') and
         ((TextField(Obj, 'backend') = 'TVM LLVM CPU FP32') or
-         (TextField(Obj, 'backend') = 'TVM CUDA W8A32')) then
+        (TextField(Obj, 'backend') = 'TVM CUDA W8A32')) then
           Result.SupportsImages := True;
       if (Result.Architecture = 'gemma3n') and
         ((TextField(Obj, 'backend') = 'TVM CUDA W8A32') or
         (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32')) then
-      begin
-        VisionManifest := TextField(Obj, 'vision_manifest');
-        Result.SupportsImages := (VisionManifest <> '') and FileExists(BundleMember(Bundle, VisionManifest));
-      end;
+        begin
+          VisionManifest := TextField(Obj, 'vision_manifest');
+          Result.SupportsImages := (VisionManifest <> '') and
+            FileExists(BundleMember(Bundle, VisionManifest));
+        end;
       Result.ImageExplanation := 'This bundle accepts text only. Images need a vision encoder and a compatible multimodal runtime. Your image will not be sent or silently ignored.';
     finally
       Value.Free;

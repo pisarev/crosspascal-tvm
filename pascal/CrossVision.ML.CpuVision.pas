@@ -2,7 +2,7 @@
 {                                                                            }
 { CrossVision.ML.CpuVision                                                   }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -675,7 +675,8 @@ end;
 
 function RunVisionBundle(const Profile: TCpuVisionProfile;
   const BundleDirectory, RuntimeDirectory, ImagePath, ImageSHA256: string; const Image: IMat;
-  const Progress: TCpuVisionProgress; const AuditDirectory: string; const AllowCuda: Boolean): TCpuVisionResult;
+  const Progress: TCpuVisionProgress; const AuditDirectory: string;
+  const AllowCuda: Boolean): TCpuVisionResult;
 const
   MiB = 1024 * 1024;
 var

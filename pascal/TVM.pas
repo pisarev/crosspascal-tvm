@@ -2,7 +2,7 @@
 {                                                                            }
 { TVM                                                                        }
 {                                                                            }
-{ Copyright © 2026 Yuriy Pisarev (ypisareff@outlook.com)                     }
+{ Copyright © 2026 Yuriy Pisarev                                             }
 {                                                                            }
 { ************************************************************************** }
 
@@ -2039,7 +2039,7 @@ begin
     end
     else if not CallFunc(Descriptor.InitFunc,
       [AnyInt(Ord(DeviceType)), AnyInt(DeviceID), AnyInt(kTVMVMAllocPooled)], InitRes, Error) then
-      Exit(False);
+          Exit(False);
     Result := True;
   finally
     if not Result then
