@@ -207,8 +207,8 @@
     },
     {
       "path": "pascal/TVM.PaddleOcr.pas",
-      "bytes": 29805,
-      "sha256": "3a0f29d63d17a7264df82b24614bd87e2a7183cd80c3eb7167814069ca9d2405"
+      "bytes": 30302,
+      "sha256": "953c9d76f80f312208acf431fe23890bd0fa21666e114254f2ab585e29ea57a7"
     },
     {
       "path": "pascal/TVM.RtDetr.pas",
