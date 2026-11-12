@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-019",
+  "release_id": "early-access-020",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -49,6 +49,36 @@
       "path": "licenses/dlpack-1.3-LICENSE.txt",
       "bytes": 11345,
       "sha256": "3e8f6bc39276a586d60c8c5aaece2ff989262181cf2b3d2a128db58f97a9300c"
+    },
+    {
+      "path": "native/paddle-clipper/LICENSE_1_0.txt",
+      "bytes": 1338,
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "native/paddle-clipper/README.md",
+      "bytes": 491,
+      "sha256": "66cfa4ef9b9d271cf0676865d30b95730a700374531af768f5691ece952216e1"
+    },
+    {
+      "path": "native/paddle-clipper/build.cmd",
+      "bytes": 253,
+      "sha256": "62769da12666e819935c7dd9db30062cb4abd94b95aceef489bce4dbd74b10de"
+    },
+    {
+      "path": "native/paddle-clipper/clipper.cpp",
+      "bytes": 142184,
+      "sha256": "5c642a3668311701f72572443aa42c1a981edb037298efc015166d9d90be0755"
+    },
+    {
+      "path": "native/paddle-clipper/clipper.hpp",
+      "bytes": 15423,
+      "sha256": "734eba9dc9d399089b2b467017074bd24728a1b9e64c7429e827806ed10e54cc"
+    },
+    {
+      "path": "native/paddle-clipper/ppocr_db_jt_round.cpp",
+      "bytes": 2502,
+      "sha256": "e671516d8d204836979959d8b55e17b2b105dd821c2c805fdf357acc00def265"
     },
     {
       "path": "native/sentencepiece/CMakeLists.txt",
@@ -174,6 +204,11 @@
       "path": "pascal/TVM.ImageInput.pas",
       "bytes": 4717,
       "sha256": "3d748ee38c872894cc126c97fc257e29912d7e0308274bec612b1712bec8dfd1"
+    },
+    {
+      "path": "pascal/TVM.PaddleOcr.pas",
+      "bytes": 29805,
+      "sha256": "3a0f29d63d17a7264df82b24614bd87e2a7183cd80c3eb7167814069ca9d2405"
     },
     {
       "path": "pascal/TVM.RtDetr.pas",
