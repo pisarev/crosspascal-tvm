@@ -34,6 +34,8 @@ For image classification and detection, open `crosspascal/examples/vision-models
 
 For background removal, open `crosspascal/examples/birefnet/BiRefNet.dproj` or `BiRefNet.lpi`. The [BiRefNet example](https://github.com/pisarev/crosspascal/tree/main/examples/birefnet) uses OpenCV to decode the image and save the original-size mask or transparent PNG. `TBiRefNetModel` checks the pinned source, tensor contract, model DLL hash, and selected CPU/CUDA device. Its 800-pixel profile differs from the upstream 2048-pixel workflow.
 
+After the last inference, call `TBiRefNetModel.Close` before reporting success, then free the model in a `finally` block. If `BiRefNetRequiresProcessRestart` is true, restart the application before loading or running another BiRefNet model. `BiRefNetCleanupDiagnostic` records secondary cleanup errors while the original operation exception is preserved. The destructor is a fallback; unsafe CUDA resources can remain held until process termination.
+
 ## Model and runtime checks
 
 `QwenCuda.pas` validates the declared profile and immutable model revision, all 170 parameter entries, parameter length and SHA-256, model DLL SHA-256, the exact tokenizer files and the four runtime DLLs. It holds input files open against writes during generation. It checks GPU 0 and compute capability before model loading, then checks CUDA tensor shapes and finite logits. The memory guard checks a minimum reserve; allocation can still fail if other applications consume memory.

@@ -23,18 +23,35 @@ const
 
 type
   TBiRefNetModel = class
+  private type
+    TCloseState = (csOpen, csClosing, csClosed, csFailed, csQuarantined);
+    TNativeResources = class
+      Graph: TCpuGraph;
+      Cuda: TCudaExecution;
+      Workspace: TCudaWorkspace;
+      Next: TNativeResources;
+    end;
   private
-    FGraph: TCpuGraph;
-    FCuda: TCudaExecution;
-    FWorkspace: TCudaWorkspace;
+    FNative: TNativeResources;
+    FCloseState: TCloseState;
+    FCloseError: string;
+    FContextUncertain: Boolean;
     FLease: TFileStream;
     FDevice: TDLDeviceType;
     FDeviceName: string;
     FModelSHA256: string;
     FDirectory: TWindowsModelDirectory;
+    procedure RememberError(const Operation, Detail: string);
+    procedure ContextFailed(const Operation, Detail: string);
+    procedure EnterContext;
+    procedure LeaveContext;
+    procedure FinishContext(const BodySucceeded: Boolean);
+    procedure QuarantineNative;
+    procedure Cleanup;
   public
     constructor Create(const Bundle, RuntimeDirectory: string);
     destructor Destroy; override;
+    procedure Close;
     function Run(const Input: TArray<Single>;
       const ShouldStop: TCpuGraphStop = nil): TArray<Single>;
     procedure RemoveBackground(const Image: IMat; out Mask, Cutout: IMat;
@@ -46,12 +63,35 @@ type
 function BiRefNetInput(const Image: IMat): TArray<Single>;
 function BiRefNetMask(const Logits: TArray<Single>; const Width, Height: Integer): IMat;
 function BiRefNetCutout(const Image, Mask: IMat): IMat;
+function BiRefNetRequiresProcessRestart: Boolean;
+function BiRefNetCleanupDiagnostic: string;
 
 implementation
 
 uses
-  {$IFDEF FPC}Math{$ELSE}System.Math{$ENDIF}, CrossPascal.Json, CrossPascal.SHA256,
-  QwenCuda, OpenCVConsts, OpenCVTypes, TVM.ImageInput;
+  {$IFDEF FPC}Windows, Math{$ELSE}Winapi.Windows, System.Math{$ENDIF}, CrossPascal.Json,
+  CrossPascal.SHA256, QwenCuda, OpenCVConsts, OpenCVTypes, TVM.ImageInput;
+
+var
+  CleanupLock: TRTLCriticalSection;
+  RestartRequired: LongInt;
+  CleanupDiagnostic: string;
+  QuarantinedNative: TBiRefNetModel.TNativeResources;
+
+function BiRefNetRequiresProcessRestart: Boolean;
+begin
+  Result := InterlockedCompareExchange(RestartRequired, 0, 0) <> 0;
+end;
+
+function BiRefNetCleanupDiagnostic: string;
+begin
+  EnterCriticalSection(CleanupLock);
+  try
+    Result := CleanupDiagnostic;
+  finally
+    LeaveCriticalSection(CleanupLock);
+  end;
+end;
 
 procedure CheckImage(const Image: IMat);
 begin
@@ -148,15 +188,29 @@ end;
 
 function BiRefNetCutout(const Image, Mask: IMat): IMat;
 var
-  Source, Target: PByte;
+  Source, Target, ByteAlpha: PByte;
   Alpha: PSingle;
-  X, Y, A: Integer;
+  ByteMask: IMat;
+  X, Y: Integer;
 begin
   CheckImage(Image);
   RequireCpu((Mask <> nil) and not Mask.IsEmpty and (Mask.Width = Image.Width) and
     (Mask.Height = Image.Height) and (Mask.Depth = CV_32F) and (Mask.Channels = 1) and
     (Mask.DataPtr <> nil) and (Mask.Step >= NativeInt(Mask.Width) * SizeOf(Single)),
     'BiRefNet requires a matching FP32 probability mask');
+  for Y := 0 to Image.Height - 1 do
+  begin
+    Alpha := PSingle(PByte(Mask.DataPtr) + NativeInt(Y) * Mask.Step);
+    for X := 0 to Image.Width - 1 do
+      RequireCpu(not IsNan(Alpha[X]) and not IsInfinite(Alpha[X]) and
+        (Alpha[X] >= 0) and (Alpha[X] <= 1), 'Invalid BiRefNet alpha probability');
+  end;
+  ByteMask := Mask.ConvertTo(CV_MAKETYPE(CV_8U, 1), 255, 0);
+  RequireCpu((ByteMask <> nil) and not ByteMask.IsEmpty and
+    (ByteMask.Width = Image.Width) and (ByteMask.Height = Image.Height) and
+    (ByteMask.Depth = CV_8U) and (ByteMask.Channels = 1) and
+    (ByteMask.DataPtr <> nil) and (ByteMask.Step >= Image.Width),
+    'BiRefNet byte mask conversion failed');
   Result := NewMat(Image.Width, Image.Height, CV_MAKETYPE(CV_8U, 4));
   RequireCpu((Result <> nil) and not Result.IsEmpty and (Result.DataPtr <> nil),
     'BiRefNet cutout allocation failed');
@@ -164,16 +218,13 @@ begin
   begin
     Source := PByte(Image.DataPtr) + NativeInt(Y) * Image.Step;
     Target := PByte(Result.DataPtr) + NativeInt(Y) * Result.Step;
-    Alpha := PSingle(PByte(Mask.DataPtr) + NativeInt(Y) * Mask.Step);
+    ByteAlpha := PByte(ByteMask.DataPtr) + NativeInt(Y) * ByteMask.Step;
     for X := 0 to Image.Width - 1 do
     begin
-      RequireCpu(not IsNan(Alpha[X]) and not IsInfinite(Alpha[X]) and
-        (Alpha[X] >= 0) and (Alpha[X] <= 1), 'Invalid BiRefNet alpha probability');
-      A := Round(Alpha[X] * 255);
       Target[X * 4] := Source[X * 3];
       Target[X * 4 + 1] := Source[X * 3 + 1];
       Target[X * 4 + 2] := Source[X * 3 + 2];
-      Target[X * 4 + 3] := A;
+      Target[X * 4 + 3] := ByteAlpha[X];
     end;
   end;
 end;
@@ -187,8 +238,12 @@ var
   Root, Artifact, IO, Settings, Provenance: TJSONObject;
   Shape: TArray<Int64>;
   Folder, Device, Architecture, LibraryName: string;
+  BodySucceeded: Boolean;
 begin
   inherited Create;
+  FNative := TNativeResources.Create;
+  RequireCpu(not BiRefNetRequiresProcessRestart,
+    'Restart the application before loading another BiRefNet model.');
   FDirectory := TWindowsModelDirectory.Create(Bundle);
   Folder := FDirectory.Path;
   Document := ReadModelJSON(BundleMember(Folder, 'manifest.json'));
@@ -224,10 +279,10 @@ begin
     if Device = 'cuda' then
     begin
       FDevice := kDLCUDA;
-      FCuda := TCudaExecution.Create;
+      FNative.Cuda := TCudaExecution.Create;
       Architecture := ModelText(Artifact.GetValue('cuda_arch'));
-      FCuda.RequireArchitecture(Architecture);
-      FDeviceName := FCuda.DeviceName + ' (' + Architecture + ')';
+      FNative.Cuda.RequireArchitecture(Architecture);
+      FDeviceName := FNative.Cuda.DeviceName + ' (' + Architecture + ')';
     end;
     LibraryName := 'model.cpu.dll';
     if FDevice = kDLCUDA then LibraryName := 'model.cuda.dll';
@@ -239,34 +294,217 @@ begin
     RequireCpu(SameText(FModelSHA256, ModelText(Artifact.GetValue('hash'))),
       'BiRefNet model SHA-256 differs');
     InitializeRuntime(ModelRuntimeDirectory(RuntimeDirectory), FDevice = kDLCUDA);
-    if FCuda <> nil then FCuda.Enter;
+    EnterContext;
+    BodySucceeded := False;
     try
-      if FCuda <> nil then
-        RequireCpu(FCuda.FreeBytes >= MinimumFreeCUDA,
+      if FNative.Cuda <> nil then
+        RequireCpu(FNative.Cuda.FreeBytes >= MinimumFreeCUDA,
           'BiRefNet requires at least 4 GiB of free CUDA memory');
-      FGraph := TCpuGraph.Create(LibraryName, FDevice);
-      if FCuda <> nil then
-        FWorkspace := TCudaWorkspace.Create(FCuda, LibraryName, WorkspaceReserve);
+      FNative.Graph := TCpuGraph.Create(LibraryName, FDevice);
+      if FNative.Cuda <> nil then
+        FNative.Workspace := TCudaWorkspace.Create(FNative.Cuda, LibraryName, WorkspaceReserve);
+      BodySucceeded := True;
     finally
-      if FCuda <> nil then FCuda.Leave;
+      FinishContext(BodySucceeded);
     end;
   finally
     Document.Free;
   end;
 end;
 
+procedure TBiRefNetModel.RememberError(const Operation, Detail: string);
+begin
+  if FCloseError <> '' then FCloseError := FCloseError + ' ';
+  FCloseError := FCloseError + Operation + ': ' + Detail;
+end;
+
+procedure TBiRefNetModel.ContextFailed(const Operation, Detail: string);
+begin
+  FContextUncertain := True;
+  InterlockedExchange(RestartRequired, 1);
+  RememberError(Operation, Detail);
+  EnterCriticalSection(CleanupLock);
+  try
+    if CleanupDiagnostic = '' then
+      CleanupDiagnostic := FCloseError
+    else if Pos(Operation + ': ' + Detail, CleanupDiagnostic) = 0 then
+        CleanupDiagnostic := CleanupDiagnostic + ' ' + Operation + ': ' + Detail;
+  finally
+    LeaveCriticalSection(CleanupLock);
+  end;
+end;
+
+procedure TBiRefNetModel.EnterContext;
+begin
+  if FNative.Cuda = nil then Exit;
+  try
+    FNative.Cuda.Enter;
+  except
+    on E: Exception do
+    begin
+      ContextFailed('CUDA context entry', E.Message);
+      raise;
+    end;
+  end;
+end;
+
+procedure TBiRefNetModel.LeaveContext;
+begin
+  if FNative.Cuda = nil then Exit;
+  try
+    FNative.Cuda.Leave;
+  except
+    on E: Exception do
+    begin
+      ContextFailed('CUDA context restoration', E.Message);
+      raise;
+    end;
+  end;
+end;
+
+procedure TBiRefNetModel.FinishContext(const BodySucceeded: Boolean);
+begin
+  if BodySucceeded then
+    LeaveContext
+  else begin
+    try
+      LeaveContext;
+    except
+      // The original constructor or inference exception remains primary.
+    end;
+  end;
+end;
+
+procedure TBiRefNetModel.QuarantineNative;
+begin
+  if FNative = nil then Exit;
+  InterlockedExchange(RestartRequired, 1);
+  EnterCriticalSection(CleanupLock);
+  try
+    FNative.Next := QuarantinedNative;
+    QuarantinedNative := FNative;
+    FNative := nil;
+  finally
+    LeaveCriticalSection(CleanupLock);
+  end;
+end;
+
+procedure TBiRefNetModel.Cleanup;
+var
+  Entered, Quarantined: Boolean;
+  Workspace: TCudaWorkspace;
+  Graph: TCpuGraph;
+begin
+  if FCloseState <> csOpen then Exit;
+  FCloseState := csClosing;
+  Entered := False;
+  Quarantined := False;
+  try
+    try
+      if FNative <> nil then
+      begin
+        if (FNative.Cuda <> nil) and BiRefNetRequiresProcessRestart then
+          FContextUncertain := True;
+        if not FContextUncertain then
+        begin
+          try
+            EnterContext;
+            Entered := FNative.Cuda <> nil;
+          except
+            // EnterContext records the failure. Never guess whether push occurred.
+          end;
+          if not FContextUncertain then
+          begin
+            Workspace := FNative.Workspace;
+            FNative.Workspace := nil;
+            try
+              Workspace.Free;
+            except
+              on E: Exception do ContextFailed('CUDA workspace cleanup', E.Message);
+            end;
+            Graph := FNative.Graph;
+            FNative.Graph := nil;
+            try
+              Graph.Free;
+            except
+              on E: Exception do ContextFailed('Model graph cleanup', E.Message);
+            end;
+          end;
+          if Entered then
+          begin
+            try
+              LeaveContext;
+            except
+              // Exactly one pop for the successful push; no retry after an error.
+            end;
+          end;
+        end;
+        if FContextUncertain then
+        begin
+          if FCloseError = '' then RememberError('CUDA cleanup', 'Context state is uncertain.');
+          QuarantineNative;
+          Quarantined := True;
+        end
+        else begin
+          FreeAndNil(FNative.Cuda);
+          FreeAndNil(FNative);
+        end;
+      end;
+    except
+      on E: Exception do
+      begin
+        ContextFailed('Native cleanup', E.Message);
+        QuarantineNative;
+        Quarantined := True;
+      end;
+    end;
+  finally
+    try
+      FreeAndNil(FLease);
+    except
+      on E: Exception do RememberError('Model file cleanup', E.Message);
+    end;
+    try
+      FreeAndNil(FDirectory);
+    except
+      on E: Exception do RememberError('Model path cleanup', E.Message);
+    end;
+    if Quarantined then
+      FCloseState := csQuarantined
+    else if (FCloseError <> '') or (FNative <> nil) or FContextUncertain then
+        FCloseState := csFailed
+      else
+        FCloseState := csClosed;
+  end;
+end;
+
+procedure TBiRefNetModel.Close;
+begin
+  Cleanup;
+  RequireCpu(FCloseState = csClosed,
+    'BiRefNet cleanup did not complete. ' + FCloseError +
+    ' Restart the application before running another model.');
+end;
+
 destructor TBiRefNetModel.Destroy;
 begin
-  if FCuda <> nil then FCuda.Enter;
   try
-    FWorkspace.Free;
-    FGraph.Free;
-  finally
-    if FCuda <> nil then FCuda.Leave;
+    Cleanup;
+  except
+    // Destruction must preserve an exception already being unwound.
+    try
+      QuarantineNative;
+    except
+    end;
+    try
+      FreeAndNil(FLease);
+    except
+    end;
+    try
+      FreeAndNil(FDirectory);
+    except
+    end;
   end;
-  FCuda.Free;
-  FLease.Free;
-  FDirectory.Free;
   inherited;
 end;
 
@@ -277,19 +515,23 @@ var
   Value: TTVMFFIAny;
   Shape: TArray<Int64>;
   I: Integer;
+  BodySucceeded: Boolean;
 begin
+  RequireCpu((FCloseState = csOpen) and not BiRefNetRequiresProcessRestart,
+    'Restart the application before running another BiRefNet model.');
   RequireCpu(Length(Input) = 3 * BiRefNetSide * BiRefNetSide, 'BiRefNet input element count differs');
   if Assigned(ShouldStop) and ShouldStop() then raise ECpuGraphStopped.Create('BiRefNet stopped');
   Argument := nil;
   Returned := nil;
   Output := nil;
-  if FCuda <> nil then FCuda.Enter;
+  EnterContext;
+  BodySucceeded := False;
   try
     Argument := DeviceTensor([1, 3, BiRefNetSide, BiRefNetSide], kDLFloat, 32, Pointer(Input), FDevice);
-    if FWorkspace <> nil then
-      Value := FWorkspace.Run(FGraph, [Argument], ShouldStop)
+    if FNative.Workspace <> nil then
+      Value := FNative.Workspace.Run(FNative.Graph, [Argument], ShouldStop)
     else
-      Value := FGraph.Run([Argument], ShouldStop);
+      Value := FNative.Graph.Run([Argument], ShouldStop);
     Returned := Value.VObj;
     if Value.TypeIndex = kTVMFFITensor then
       Shape := TTVMRuntime.GetTensorShape(TTVMRuntime.TensorDLTensor(Returned))
@@ -305,11 +547,12 @@ begin
       Result := ReadFloatTensor(Output);
     for I := 0 to High(Result) do
       RequireCpu(not IsNan(Result[I]) and not IsInfinite(Result[I]), 'Non-finite BiRefNet output');
+    BodySucceeded := True;
   finally
     TTVMRuntime.ObjectRelease(Output);
     TTVMRuntime.ObjectRelease(Returned);
     TTVMRuntime.ObjectRelease(Argument);
-    if FCuda <> nil then FCuda.Leave;
+    FinishContext(BodySucceeded);
   end;
 end;
 
@@ -325,5 +568,12 @@ begin
   Mask := BiRefNetMask(Logits, Image.Width, Image.Height);
   Cutout := BiRefNetCutout(Image, Mask);
 end;
+
+initialization
+  InitializeCriticalSection(CleanupLock);
+
+finalization
+  // Quarantined native groups stay untouched until process termination.
+  DeleteCriticalSection(CleanupLock);
 
 end.

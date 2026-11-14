@@ -22,8 +22,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 6568,
-      "sha256": "6f0620697777ce103f0616153cf52d36ef8d0bbec3bb16f0a612339afc0f3c25"
+      "bytes": 7019,
+      "sha256": "1281f439d658fc1fcb7fadbeda711da2808b1f699b4158685ec87f84c277f337"
     },
     {
       "path": "docs/PASCAL-API-NOTES.md",
@@ -192,8 +192,8 @@
     },
     {
       "path": "pascal/TVM.BiRefNet.pas",
-      "bytes": 13033,
-      "sha256": "34627218f2e0ea6a58e11d6cc1827b17224a283b78f64ab6123a7a6ca37ec276"
+      "bytes": 20217,
+      "sha256": "4db290107dd1a5f25612ed69e026f20d39d02a41442560e1c9dfb54a72d447c8"
     },
     {
       "path": "pascal/TVM.CpuGraph.pas",
