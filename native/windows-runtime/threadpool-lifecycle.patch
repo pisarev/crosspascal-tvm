@@ -1,0 +1,95 @@
+CrossPascal modifications, Copyright © 2026 Yuriy Pisarev.
+Modified 14 November 2026: explicit Windows host-thread pool shutdown and
+parallel error propagation. The modified TVM source remains Apache-2.0;
+see ../../licenses/TVM-LICENSE and ../../licenses/TVM-NOTICE.
+
+--- a/src/runtime/thread_pool.cc
++++ b/src/runtime/thread_pool.cc
+@@ -115,9 +115,10 @@
+   }
+   // Signal that one job has finished.
+   void SignalJobError(int task_id) {
+-    num_pending_.fetch_sub(1);
+     par_errors_[task_id] = tvm::ffi::details::MoveFromSafeCallRaised();
+     has_error_.store(true);
++    // Publish the error before the waiter can observe that all jobs have finished.
++    num_pending_.fetch_sub(1);
+   }
+   // Signal that one job has finished.
+   void SignalJobFinish() { num_pending_.fetch_sub(1); }
+@@ -293,6 +294,12 @@
+     ParallelLauncher* launcher = ParallelLauncher::ThreadLocal();
+     TVM_FFI_ICHECK(!launcher->is_worker)
+         << "Cannot launch parallel job inside worker, consider fuse then parallel";
++    TVM_FFI_ICHECK(!active_launch_) << "Recursive parallel launch is not supported";
++    active_launch_ = true;
++    struct LaunchGuard {
++      bool& active;
++      ~LaunchGuard() { active = false; }
++    } guard{active_launch_};
+     if (num_task == 0) {
+       num_task = num_workers_used_;
+     }
+@@ -315,7 +322,7 @@
+       if ((*tsk.launcher->flambda)(0, penv, cdata) == 0) {
+         tsk.launcher->SignalJobFinish();
+       } else {
+-        tsk.launcher->SignalJobError(tsk.task_id);
++        tsk.launcher->SignalJobError(0);
+       }
+     }
+     int res = launcher->WaitForJobs();
+@@ -323,8 +330,19 @@
+   }
+ 
+   static ThreadPool* ThreadLocal() {
+-    static thread_local ThreadPool inst;
+-    return &inst;
++    auto& inst = ThreadLocalStorage();
++    if (!inst) inst = std::make_unique<ThreadPool>();
++    return inst.get();
++  }
++  static void ShutdownThreadLocal() {
++    TVM_FFI_ICHECK(!ParallelLauncher::ThreadLocal()->is_worker)
++        << "Cannot shut down the host thread pool from a pool worker";
++    auto& inst = ThreadLocalStorage();
++    if (inst) {
++      TVM_FFI_ICHECK(!inst->active_launch_)
++          << "Cannot shut down the host thread pool during a parallel launch";
++      inst.reset();
++    }
+   }
+ 
+   void UpdateWorkerConfiguration(threading::ThreadGroup::AffinityMode mode, int nthreads,
+@@ -340,6 +358,11 @@
+   int32_t NumThreads() const { return num_workers_used_; }
+ 
+  private:
++  static std::unique_ptr<ThreadPool>& ThreadLocalStorage() {
++    static thread_local std::unique_ptr<ThreadPool> inst;
++    return inst;
++  }
++  bool active_launch_{false};
+   // Shared initialization code
+   void Init() {
+     for (int i = 0; i < num_workers_; ++i) {
+@@ -404,7 +427,8 @@
+                     }
+                     threading::Configure(mode, nthreads, cpus);
+                   })
+-      .def("runtime.NumThreads", []() -> int32_t { return threading::NumThreads(); });
++      .def("runtime.NumThreads", []() -> int32_t { return threading::NumThreads(); })
++      .def("runtime.ShutdownThreadPool", []() { ThreadPool::ShutdownThreadLocal(); });
+ }
+ 
+ namespace threading {
+@@ -489,8 +513,7 @@
+     TVMParallelGroupEnv env;
+     env.num_task = 1;
+     env.sync_handle = &sync_counter;
+-    (*flambda)(0, &env, cdata);
+-    return 0;
++    return (*flambda)(0, &env, cdata);
+   } else {
+ #if !TVM_THREADPOOL_USE_OPENMP
+     int res = tvm::runtime::ThreadPool::ThreadLocal()->Launch(flambda, cdata, num_task, 1);

@@ -16,8 +16,8 @@
     },
     {
       "name": "tvm_runtime.dll",
-      "bytes": 2112512,
-      "sha256": "45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1"
+      "bytes": 2345984,
+      "sha256": "e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584"
     },
     {
       "name": "tvm_runtime_extra.dll",
@@ -38,5 +38,27 @@
   "model_weights_included": false,
   "reproducible_rebuild_claim": false,
   "validation_scope": "Execution results are recorded separately for a specific bundle, device and prompt.",
-  "installation": "scripts/install_tvm_windows.py"
+  "installation": "scripts/install_tvm_windows.py",
+  "tvm_modified": true,
+  "core_source_manifest": "native/windows-runtime/SOURCES.json",
+  "core_build": {
+    "compiler": "MSVC19.44.35211 x64",
+    "cmake": "3.30.2",
+    "ninja": "1.12.1",
+    "cuda_toolkit": "12.8",
+    "configuration": "Release",
+    "target": "tvm_runtime",
+    "options": [
+      "USE_CUDA=ON",
+      "USE_LLVM=OFF",
+      "USE_GTEST=OFF",
+      "TVM_FFI_USE_LIBBACKTRACE=OFF"
+    ],
+    "modified_file": "src/runtime/thread_pool.cc",
+    "patch_sha256": "15d036c8fb4b7edf72db1cc40fcebad8f9021b3a132ac94644a8beae56cebec6",
+    "ffi_import_library_built_from_pinned_source": true,
+    "official_ffi_dll_preserved": true
+  },
+  "thread_shutdown": "runtime.ShutdownThreadPool on the quiescent owning host thread before its exit; never from pool callbacks or DLL detach",
+  "python_compiler_binaries": "Unmodified upstream wheel files; separate from the patched native SDK core"
 }

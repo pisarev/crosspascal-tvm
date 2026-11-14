@@ -16,11 +16,15 @@ The retained Qwen2.5-0.5B-Instruct legacy profile uses all 24 layers, FP32, batc
 | `pascal/TVM.Yolo11.pas`, `pascal/TVM.RtDetr.pas`, `pascal/CrossVision.Float16.pas` | Existing model decoders and their small float16 dependency |
 | `pascal/TVM.BiRefNet.pas` | Full HR800 SwinL CPU/CUDA loading, image normalization, mask resizing, and transparent cutouts |
 | `pascal/TVM.WindowsPaths.pas` | Windows Unicode runtime paths and temporary model-directory aliases |
+| `pascal/TVM.Threads.pas` | Explicit shutdown of a short-lived inference thread's native pool |
+| `native/windows-runtime/` | Pinned source archives, Windows pool-lifecycle patch and core build recipe |
 | `runtime/windows-x64-cuda/` | Runtime destination, five tokenizer files, model source pins and licences |
 | `recipes/TVMBuildOptions.txt` | Historical CPU build-options template; it is separate from the supplied CUDA kit |
 | `docs/PASCAL-API-NOTES.md` | Ownership, tensor layout and runtime-lifetime requirements |
 
 Use the four native runtime DLLs supplied with the Windows x64 SDK. Keep them together. The runtime requires the Microsoft Visual C++ x64 runtime. CUDA also requires a compatible NVIDIA driver.
+
+The SDK core includes the [Windows host-thread shutdown correction](native/windows-runtime/README.md). An unmodified upstream core does not provide that entry and is rejected before inference. The runtime installer verifies upstream companion DLLs and uses the matching SDK core, selected with `--runtime-core` when installing from a source checkout. It copies the runtime licenses and notices into the destination. Python compiler packages retain their upstream binaries.
 
 The retained FFI package version and its C ABI version are different identifiers: the pinned DLL reports C ABI `0.1.14`. The consumers check both the exact DLL bytes and that ABI tuple. CPU vision loads the first three runtime DLLs and does not initialize CUDA.
 

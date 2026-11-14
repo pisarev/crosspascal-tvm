@@ -1,4 +1,4 @@
-{ ************************************************************************** }
+﻿{ ************************************************************************** }
 {                                                                            }
 { QwenCuda                                                                   }
 {                                                                            }
@@ -122,7 +122,7 @@ uses
   {$IFDEF FPC}Windows, Classes, Generics.Collections, Math, {$ELSE}
   Winapi.Windows, System.Classes, System.Generics.Collections, System.Math, {$ENDIF}
   {$IFDEF FPC}CrossPascal.WinMemory,{$ENDIF} CrossPascal.Json, CrossPascal.SHA256,
-  DLPack, TVM, QwenModel, QwenTokenizer;
+  DLPack, TVM, TVM.Threads, QwenModel, QwenTokenizer;
 
 type
   TQwenCudaProfile = record
@@ -187,10 +187,10 @@ const
   );
   RuntimeNames: array[0..3] of string = (
     'tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll', 'tvm_runtime_cuda.dll');
-  RuntimeBytes: array[0..3] of Int64 = (4082176, 2112512, 828416, 365056);
+  RuntimeBytes: array[0..3] of Int64 = (4082176, 2345984, 828416, 365056);
   RuntimeSHA256: array[0..3] of string = (
     '2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913',
-    '45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1',
+    'e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584',
     '4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee',
     '4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b');
   TokenizerNames: array[0..4] of string = (
@@ -759,6 +759,8 @@ begin
   begin
     Require(SameText(LoadedRuntimeDirectory, Directory),
       'Restart the application before selecting a different runtime.');
+    Require(TVMThreadShutdownAvailable,
+      'The selected TVM runtime lacks safe thread shutdown. Prepare the matching runtime kit.');
     if NeedCuda and (TTVMRuntime.TModule.CudaRuntimeHandle = 0) then
       TTVMRuntime.TModule.CudaRuntimeHandle := LoadRuntimeFile(RuntimeNames[3]);
     Exit;
@@ -790,6 +792,8 @@ begin
   Require((Version.Major = 0) and (Version.Minor = 1) and (Version.Patch = 14),
     Format('Unexpected TVM FFI ABI %d.%d.%d; expected 0.1.14.',
       [Version.Major, Version.Minor, Version.Patch]));
+  Require(TVMThreadShutdownAvailable,
+    'The selected TVM runtime lacks safe thread shutdown. Prepare the matching runtime kit.');
   LoadedRuntimeDirectory := Directory;
   RuntimeInitializationFailed := False;
 end;

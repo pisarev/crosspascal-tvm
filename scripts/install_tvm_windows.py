@@ -1,5 +1,5 @@
-# Copyright (C) 2026 Yuriy Pisarev. MIT license; see LICENSE.
-"""Install pinned upstream Windows x64 TVM and Python packages."""
+# Copyright © 2026 Yuriy Pisarev. MIT license; see LICENSE.
+"""Install the pinned CrossPascal runtime and upstream TVM Python packages."""
 
 import argparse
 import hashlib
@@ -25,11 +25,20 @@ WHEELS = (
         "a6af0a29916494a33d40dc469951d9a631b2f5938003a1bfaabc2a7a33e6e3a2",
     ),
 )
-RUNTIME = {
+UPSTREAM_RUNTIME = {
     "tvm/lib/tvm_runtime.dll": "45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1",
     "tvm/lib/tvm_runtime_extra.dll": "4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee",
     "tvm/lib/tvm_runtime_cuda.dll": "4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b",
     "tvm_ffi/lib/tvm_ffi.dll": "2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913",
+}
+NATIVE_CORE_BYTES = 2345984
+NATIVE_CORE_SHA256 = "e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584"
+LICENSE_FILES = {
+    "LICENSE-tvm-0.26.0.txt": "licenses/TVM-LICENSE",
+    "NOTICE-tvm-0.26.0.txt": "licenses/TVM-NOTICE",
+    "LICENSE-tvm-ffi-0.1.14.txt": "runtime/windows-x64-cuda/LICENSE-tvm-ffi-0.1.14.txt",
+    "NOTICE-tvm-ffi-0.1.14.txt": "runtime/windows-x64-cuda/NOTICE-tvm-ffi-0.1.14.txt",
+    "NOTICE-CrossPascal-runtime.txt": "runtime/windows-x64-cuda/NOTICE-CrossPascal-runtime.txt",
 }
 
 
@@ -85,7 +94,7 @@ def stage_wheels(wheels, stage, include_python):
                     raise ValueError(f"Unsafe wheel member {member.filename}")
                 if member.is_dir():
                     continue
-                if member.filename in RUNTIME:
+                if member.filename in UPSTREAM_RUNTIME:
                     with archive.open(member) as source, (native / name.name).open("xb") as target:
                         shutil.copyfileobj(source, target)
                 if include_python:
@@ -95,7 +104,7 @@ def stage_wheels(wheels, stage, include_python):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(member) as source, path.open("xb") as target:
                         shutil.copyfileobj(source, target)
-    for member, expected in RUNTIME.items():
+    for member, expected in UPSTREAM_RUNTIME.items():
         path = native / PurePosixPath(member).name
         if sha256(path) != expected:
             raise ValueError(f"Native library checksum differs for {path.name}")
@@ -141,6 +150,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache", type=Path, required=True, help="Directory for verified wheel downloads")
     parser.add_argument("--destination", type=Path, help="TVM DLL directory in the SDK")
+    parser.add_argument("--runtime-core", type=Path,
+                        default=Path(__file__).resolve().parents[1] / "runtime/windows-x64-cuda/tvm_runtime.dll",
+                        help="Patched tvm_runtime.dll from the matching CrossPascal SDK")
     parser.add_argument("--site-packages", type=Path, help="Install the compiler's Python packages too")
     parser.add_argument("--offline", action="store_true", help="Use only wheels already in the cache")
     parser.add_argument("--dependencies", type=Path, help="Additional Python wheel lock for the SDK")
@@ -150,6 +162,12 @@ def main():
         parser.error("--destination is required when installing")
     if args.dependencies and args.site_packages is None and not args.download_only:
         parser.error("--dependencies requires --site-packages")
+    if not args.download_only:
+        if (not args.runtime_core.is_file()
+                or args.runtime_core.stat().st_size != NATIVE_CORE_BYTES
+                or sha256(args.runtime_core) != NATIVE_CORE_SHA256):
+            raise ValueError("Select the matching CrossPascal SDK tvm_runtime.dll with --runtime-core. "
+                             "The upstream wheel core does not provide safe host-thread shutdown.")
     packages = list(WHEELS)
     if args.dependencies:
         packages.extend(read_dependencies(args.dependencies))
@@ -161,8 +179,16 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         stage = Path(directory)
         stage_wheels(wheels, stage, args.site_packages is not None)
+        shutil.copyfile(args.runtime_core, stage / "native/tvm_runtime.dll")
+        if sha256(stage / "native/tvm_runtime.dll") != NATIVE_CORE_SHA256:
+            raise ValueError("Patched runtime core changed during staging")
+        repository = Path(__file__).resolve().parents[1]
+        for name, relative in LICENSE_FILES.items():
+            shutil.copyfile(repository / relative, stage / "native" / name)
         install(stage, args.destination, args.site_packages)
-    print("Verified and installed TVM 0.26.0 and TVM FFI 0.1.14 for Windows x64.")
+    print("Verified and installed the CrossPascal TVM 0.26.0 runtime and official TVM FFI 0.1.14.")
+    if args.site_packages:
+        print("The Python compiler packages retain their upstream binaries.")
     if args.dependencies:
         print(f"Verified and installed {len(packages) - len(WHEELS)} Python dependencies.")
 

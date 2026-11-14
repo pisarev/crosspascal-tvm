@@ -18,6 +18,10 @@ Release tensors, the KV cache, VM, module and parameter references after a run. 
 
 The Qwen consumer permits one run at a time. After a partially failed runtime initialization, restart the application. Restart it before changing to a different runtime directory.
 
+When a short-lived host thread runs TVM, finish its native pool before that thread exits. Use `FinishTVMThread` from `TVM.Threads` in its outer `finally`, after the last native operation, on that same host thread. Check its return value before reporting success. The helper appends a cleanup diagnostic to an existing operation error; it preserves the original error first. The supplied BiRefNet, PaddleOCR, VisionModels and shared language GUI workers use this boundary on success, Stop and failure.
+
+The matching SDK core provides `runtime.ShutdownThreadPool`. The consumer checks that entry before inference. Shutdown resets only an existing, quiescent host pool; repeated shutdown is harmless, and an unused thread does not create workers. Do not invoke it from a pool worker, an active parallel callback, unit finalization or DLL detach. It does not close a retained model, VM or KV cache. A later request on another host thread can create its own pool. See the [runtime source and build recipe](../native/windows-runtime/README.md).
+
 ## Parameter and tokenizer input
 
 The Qwen profile uses 170 float32 tensors, in the exact order recorded in `model.json` and the two parameter indexes. It validates the full layout and checks the SHA-256 recorded during conversion. A minimum free-memory guard does not reserve memory against other applications.

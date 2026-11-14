@@ -1,4 +1,4 @@
-{ ************************************************************************** }
+﻿{ ************************************************************************** }
 {                                                                            }
 { CrossVision.ML.CpuVision                                                   }
 {                                                                            }
@@ -81,7 +81,7 @@ const
   RuntimeNames: array[0..3] of string = ('tvm_ffi.dll', 'tvm_runtime.dll', 'tvm_runtime_extra.dll', 'tvm_runtime_cuda.dll');
   RuntimeHashes: array[0..3] of string = (
     '2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913',
-    '45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1',
+    'e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584',
     '4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee',
     '4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b');
   LightSqueezeNetSHA256 = '770b0f3c8623e18bf58b53754d710051b4c268248422142980a132bbe6dfe908';

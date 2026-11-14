@@ -1,0 +1,33 @@
+{
+  "schema": "crosspascal-tvm-core-source-v1",
+  "archives": [
+    {
+      "file": "tvm.tar.gz",
+      "destination": ".",
+      "revision": "bb9bc20a8294fb19a2a40f029fe57baa546a8206",
+      "url": "https://github.com/apache/tvm/archive/bb9bc20a8294fb19a2a40f029fe57baa546a8206.tar.gz",
+      "sha256": "e5d1918c19aa3ea18cd029db03f76acb8647f920233e835cf7bac59aff4e885d"
+    },
+    {
+      "file": "tvm-ffi.tar.gz",
+      "destination": "3rdparty/tvm-ffi",
+      "revision": "70e5af34b162096340695c583b11c197f3a89595",
+      "url": "https://github.com/apache/tvm-ffi/archive/70e5af34b162096340695c583b11c197f3a89595.tar.gz",
+      "sha256": "74917258d014f3480d8a8ff03066a16d5e1d048dba39afe222739df2a113b8ab"
+    },
+    {
+      "file": "dlpack.tar.gz",
+      "destination": "3rdparty/tvm-ffi/3rdparty/dlpack",
+      "revision": "84d107bf416c6bab9ae68ad285876600d230490d",
+      "url": "https://github.com/dmlc/dlpack/archive/84d107bf416c6bab9ae68ad285876600d230490d.tar.gz",
+      "sha256": "9978ddb7f533fcee7e0c0ab81a978257d3f8dc475eb83319a5e632738cafb271"
+    }
+  ],
+  "patch": {
+    "file": "threadpool-lifecycle.patch",
+    "sha256": "15d036c8fb4b7edf72db1cc40fcebad8f9021b3a132ac94644a8beae56cebec6"
+  },
+  "unmodified_thread_pool_sha256": "833cbb6fadb1b6025b94d67d097a55c0e0a864af3ee2a30b21c145f7b1beaf40",
+  "modified_thread_pool_sha256": "26898220c12ac105eb3c82cd20f351a8c9713e898b01b77a928d828b110c43d7",
+  "supplied_core_sha256": "e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584"
+}
