@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-020",
+  "release_id": "early-access-021",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -22,8 +22,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 5733,
-      "sha256": "3c2f8b713adeab4b341318d4234779093fb0e6e96dc64eb636ddcafda3c8895e"
+      "bytes": 6568,
+      "sha256": "6f0620697777ce103f0616153cf52d36ef8d0bbec3bb16f0a612339afc0f3c25"
     },
     {
       "path": "docs/PASCAL-API-NOTES.md",
@@ -191,6 +191,11 @@
       "sha256": "1452a1298eb1b3162d9e19a5b3e5c3ab6f3b8b6e2dc9628507bf0a061ff2e85b"
     },
     {
+      "path": "pascal/TVM.BiRefNet.pas",
+      "bytes": 13033,
+      "sha256": "34627218f2e0ea6a58e11d6cc1827b17224a283b78f64ab6123a7a6ca37ec276"
+    },
+    {
       "path": "pascal/TVM.CpuGraph.pas",
       "bytes": 14703,
       "sha256": "b30d3daf46f56af1340816b90e2363de74824bd8e2b9906cffb01a6a558ce6ce"
@@ -219,6 +224,11 @@
       "path": "pascal/TVM.TokenGraph.pas",
       "bytes": 8766,
       "sha256": "344d41d623fa0259d52017035f605ba52f8403449576702ba940198f6fcc1a33"
+    },
+    {
+      "path": "pascal/TVM.WindowsPaths.pas",
+      "bytes": 6312,
+      "sha256": "1e5ea2ff3a7a679d4dd5d51951802e4374aeab9f8d73feb0a1ac62b2e12864ae"
     },
     {
       "path": "pascal/TVM.Yolo11.pas",

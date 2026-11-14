@@ -1,8 +1,8 @@
 # CrossPascal TVM
 
-This repository supplies the Pascal TVM interface, the Qwen tokenizer and model helpers, CPU vision adapters, and a pinned Windows x64 runtime installer. Delphi and Lazarus projects are provided for [Qwen CUDA chat](https://github.com/pisarev/crosspascal/tree/main/examples/qwen-chat) and [CPU vision models](https://github.com/pisarev/crosspascal/tree/main/examples/vision-models).
+This repository supplies the Pascal TVM interface, the Qwen tokenizer and model helpers, CPU and CUDA vision adapters, and a pinned Windows x64 runtime installer. Delphi and Lazarus projects are provided for [Qwen CUDA chat](https://github.com/pisarev/crosspascal/tree/main/examples/qwen-chat) and [vision models](https://github.com/pisarev/crosspascal/tree/main/examples/vision-models).
 
-The supplied Qwen CUDA profile uses Qwen2.5-0.5B-Instruct with all 24 layers, FP32, batch size 1, context 64 and prefill chunk 64. The converter records the selected CUDA architecture, and QwenChat checks the running device against it. Generation is greedy with six new tokens by default and EOS handling.
+The retained Qwen2.5-0.5B-Instruct legacy profile uses all 24 layers, FP32, batch size 1, context 64 and prefill chunk 64. Current conversion and chat applications also support separate profiles with larger converted contexts. The converter records the CUDA architecture, and QwenChat checks the running device against it. Generation settings include sampling, Auto answer budgets, a manual token limit and Stop. Loaded models can be reused between requests.
 
 ## Contents
 
@@ -14,6 +14,8 @@ The supplied Qwen CUDA profile uses Qwen2.5-0.5B-Instruct with all 24 layers, FP
 | `pascal/QwenCuda.pas` | Validation and execution of the supplied CUDA profile |
 | `pascal/CrossVision.ML.pas`, `pascal/CrossVision.ML.CpuVision.pas` | Common result types and the explicit CPU vision consumer |
 | `pascal/TVM.Yolo11.pas`, `pascal/TVM.RtDetr.pas`, `pascal/CrossVision.Float16.pas` | Existing model decoders and their small float16 dependency |
+| `pascal/TVM.BiRefNet.pas` | Full HR800 SwinL CPU/CUDA loading, image normalization, mask resizing, and transparent cutouts |
+| `pascal/TVM.WindowsPaths.pas` | Windows Unicode runtime paths and temporary model-directory aliases |
 | `runtime/windows-x64-cuda/` | Runtime destination, five tokenizer files, model source pins and licences |
 | `recipes/TVMBuildOptions.txt` | Historical CPU build-options template; it is separate from the supplied CUDA kit |
 | `docs/PASCAL-API-NOTES.md` | Ownership, tensor layout and runtime-lifetime requirements |
@@ -29,6 +31,8 @@ Extract `crosspascal`, `crosspascal-tvm` and `crosspascal-opencv` as sibling dir
 `TVM.pas` currently exposes image helpers through `OpenCVTypes`, `OpenCVConsts` and `CrossVision.Mat`. Their complete Pascal sources are supplied by the sibling OpenCV repository. The text-only Qwen example does not initialize OpenCV or call its image operations. Leptonica is not a dependency of this text route.
 
 For image classification and detection, open `crosspascal/examples/vision-models/VisionModels.dproj` in Delphi or `VisionModels.lpi` in Lazarus and build for Windows x64. That project also uses the main repository's geometry types and initializes the locally built OpenCV runtime. Its [README](https://github.com/pisarev/crosspascal/tree/main/examples/vision-models) describes the five profiles, external model-bundle requirements, preprocessing and source-provenance limits.
+
+For background removal, open `crosspascal/examples/birefnet/BiRefNet.dproj` or `BiRefNet.lpi`. The [BiRefNet example](https://github.com/pisarev/crosspascal/tree/main/examples/birefnet) uses OpenCV to decode the image and save the original-size mask or transparent PNG. `TBiRefNetModel` checks the pinned source, tensor contract, model DLL hash, and selected CPU/CUDA device. Its 800-pixel profile differs from the upstream 2048-pixel workflow.
 
 ## Model and runtime checks
 
