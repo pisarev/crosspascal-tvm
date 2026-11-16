@@ -15,6 +15,9 @@ The retained Qwen2.5-0.5B-Instruct legacy profile uses all 24 layers, FP32, batc
 | `pascal/CrossVision.ML.pas`, `pascal/CrossVision.ML.CpuVision.pas` | Common result types and the explicit CPU vision consumer |
 | `pascal/TVM.Yolo11.pas`, `pascal/TVM.RtDetr.pas`, `pascal/CrossVision.Float16.pas` | Existing model decoders and their small float16 dependency |
 | `pascal/TVM.BiRefNet.pas` | Full HR800 SwinL CPU/CUDA loading, image normalization, mask resizing, and transparent cutouts |
+| `pascal/TVM.OmDet.pas` | OmDet image preprocessing and class-aware detection postprocessing |
+| `pascal/TVM.OmDetModel.pas` | Native CLIP and Swin-Tiny execution, learned class projection, and text-feature caching |
+| `pascal/ClipTokenizer.pas` | Unicode CLIP byte-BPE tokenization for editable class and task text |
 | `pascal/TVM.WindowsPaths.pas` | Windows Unicode runtime paths and temporary model-directory aliases |
 | `pascal/TVM.Threads.pas` | Explicit shutdown of a short-lived inference thread's native pool |
 | `native/windows-runtime/` | Pinned source archives, Windows pool-lifecycle patch and core build recipe |
@@ -39,6 +42,8 @@ For image classification and detection, open `crosspascal/examples/vision-models
 For background removal, open `crosspascal/examples/birefnet/BiRefNet.dproj` or `BiRefNet.lpi`. The [BiRefNet example](https://github.com/pisarev/crosspascal/tree/main/examples/birefnet) uses OpenCV to decode the image and save the original-size mask or transparent PNG. `TBiRefNetModel` checks the pinned source, tensor contract, model DLL hash, and selected CPU/CUDA device. Its 800-pixel profile differs from the upstream 2048-pixel workflow.
 
 After the last inference, call `TBiRefNetModel.Close` before reporting success, then free the model in a `finally` block. If `BiRefNetRequiresProcessRestart` is true, restart the application before loading or running another BiRefNet model. `BiRefNetCleanupDiagnostic` records secondary cleanup errors while the original operation exception is preserved. The destructor is a fallback; unsafe CUDA resources can remain held until process termination.
+
+For text-guided object detection, open `crosspascal/examples/omdet-turbo/OmDetTurbo.dproj` or `OmDetTurbo.lpi`. The [OmDet-Turbo example](https://github.com/pisarev/crosspascal/tree/main/examples/omdet-turbo) uses `TOmDetModel` to run the CLIP text encoder and Swin-Tiny detector on CPU or CUDA. It accepts up to 16 class names and a task instruction, then saves boxes, scores, and an annotated image. Bundle loading checks all five artifacts and their hashes.
 
 ## Model and runtime checks
 

@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-021",
+  "release_id": "early-access-022",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -22,8 +22,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 7697,
-      "sha256": "c3f6450abbe4942a56e0aa26c802a4606422887a733fee555c4bd4a4fb3b78aa"
+      "bytes": 8478,
+      "sha256": "30a9a0f272e019b6bc6d7f81cbb7aea3623f24a5e3faaeaf695baa2b956616a3"
     },
     {
       "path": "docs/PASCAL-API-NOTES.md",
@@ -119,6 +119,11 @@
       "path": "pascal/BPETokenizer.pas",
       "bytes": 5257,
       "sha256": "5b85ff329aa83619f002c039bf469fccb38167e1bf912bbb7d8ef2112a4129cb"
+    },
+    {
+      "path": "pascal/ClipTokenizer.pas",
+      "bytes": 16559,
+      "sha256": "d3907998c463a3ce4d295a7e7035903802abb1ef4eea1d62f3d91a26c7d6b047"
     },
     {
       "path": "pascal/CrossPascal.Json.pas",
@@ -229,6 +234,16 @@
       "path": "pascal/TVM.ImageInput.pas",
       "bytes": 5269,
       "sha256": "cac18bc6f1dc7a4d18df25d269f2ed1f8d7aeb07ac988084480d0781e608da22"
+    },
+    {
+      "path": "pascal/TVM.OmDet.pas",
+      "bytes": 7602,
+      "sha256": "dc2fe752d3294f750f2298db0da29c3914a0e4dc8565219b5ae8e986fb01e404"
+    },
+    {
+      "path": "pascal/TVM.OmDetModel.pas",
+      "bytes": 24674,
+      "sha256": "141dd8abb7a68cb20ea98af2a396eeea4d3903b809bc9740ce217f554815773e"
     },
     {
       "path": "pascal/TVM.PaddleOcr.pas",
