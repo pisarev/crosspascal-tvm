@@ -49,7 +49,7 @@ For text-guided object detection, open `crosspascal/examples/omdet-turbo/OmDetTu
 
 `QwenCuda.pas` validates the declared profile and immutable model revision, all 170 parameter entries, parameter length and SHA-256, model DLL SHA-256, the exact tokenizer files and the four runtime DLLs. It holds input files open against writes during generation. It checks GPU 0 and compute capability before model loading, then checks CUDA tensor shapes and finite logits. The memory guard checks a minimum reserve; allocation can still fail if other applications consume memory.
 
-The runtime binaries are selected, pinned artifacts. Their presence does not claim that the TVM compiler has been rebuilt reproducibly or that another GPU, precision, context length or model has been tested. Hardware execution and delivery evidence belong to the corresponding [CrossPascal release notes](https://github.com/pisarev/crosspascal/releases). A generated result records the actual device, input hashes and token IDs; it does not declare a release accepted.
+The [CrossPascal release notes](https://github.com/pisarev/crosspascal/releases) list the coordinated SDK, model, and runtime downloads. Generated model results record the actual device, input hashes, and token IDs.
 
 ## Licences
 
