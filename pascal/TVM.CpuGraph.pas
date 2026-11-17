@@ -375,12 +375,12 @@ begin
     if Data <> nil then
       RequireTVM(TTVMRuntime.CopyBytesToTensor(Result, Data, ByteCount, @Error), @Error)
     else if DeviceType = kDLCUDA then
-      begin
-        SetLength(Zero, ByteCount);
-        RequireTVM(TTVMRuntime.CopyBytesToTensor(Result, Pointer(Zero), ByteCount, @Error), @Error);
-      end
-      else
-        FillChar(TTVMRuntime.TensorDLTensor(Result)^.data^, ByteCount, 0);
+    begin
+      SetLength(Zero, ByteCount);
+      RequireTVM(TTVMRuntime.CopyBytesToTensor(Result, Pointer(Zero), ByteCount, @Error), @Error);
+    end
+    else
+      FillChar(TTVMRuntime.TensorDLTensor(Result)^.data^, ByteCount, 0);
   except
     TTVMRuntime.ObjectRelease(Result);
     raise;

@@ -20,24 +20,25 @@ uses
 
 type
   TGemma3nNative = class
-  private type
-    TEmbeddingTable = record
-      Data: TMappedModelFile;
-      Rows: Integer;
-      Width: Integer;
-    end;
-    TCudaWeight = record
-      Data: Pointer;
-      Shape: TArray<Int64>;
-      Code: TDLDataTypeCode;
-      Bits: Integer;
-    end;
-    TPrompt = record
-      Tokens: TArray<Integer>;
-      Embeddings: TArray<TArray<Single>>;
-      procedure Add(const Token: Integer); overload;
-      procedure Add(const IDs: array of Integer); overload;
-    end;
+  private
+    type
+      TEmbeddingTable = record
+        Data: TMappedModelFile;
+        Rows: Integer;
+        Width: Integer;
+      end;
+      TCudaWeight = record
+        Data: Pointer;
+        Shape: TArray<Int64>;
+        Code: TDLDataTypeCode;
+        Bits: Integer;
+      end;
+      TPrompt = record
+        Tokens: TArray<Integer>;
+        Embeddings: TArray<TArray<Single>>;
+        procedure Add(const Token: Integer); overload;
+        procedure Add(const IDs: array of Integer); overload;
+      end;
   private
     FFolder: string;
     FSourceHash: string;
@@ -686,8 +687,9 @@ begin
         Limit := Options.MaxNewTokens;
         LimitReason := 'manual_limit';
       end
-      else if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
-        (EffortBudget[Options.Effort] < Limit) then
+      else
+        if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
+          (EffortBudget[Options.Effort] < Limit) then
           begin
             Limit := EffortBudget[Options.Effort];
             LimitReason := 'effort_limit';

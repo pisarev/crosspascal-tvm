@@ -362,11 +362,11 @@ begin
     end;
   end
   else if Value is TJSONArray then
-    begin
-      Arr := TJSONArray(Value);
-      for Index := 0 to Arr.Count - 1 do
-        CheckJSONKeys(Arr.Items[Index], Depth + 1);
-    end;
+  begin
+    Arr := TJSONArray(Value);
+    for Index := 0 to Arr.Count - 1 do
+      CheckJSONKeys(Arr.Items[Index], Depth + 1);
+  end;
 end;
 
 function ReadObject(const Stream: TFileStream): TJSONObject;

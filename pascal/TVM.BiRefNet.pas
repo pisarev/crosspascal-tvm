@@ -23,14 +23,15 @@ const
 
 type
   TBiRefNetModel = class
-  private type
-    TCloseState = (csOpen, csClosing, csClosed, csFailed, csQuarantined);
-    TNativeResources = class
-      Graph: TCpuGraph;
-      Cuda: TCudaExecution;
-      Workspace: TCudaWorkspace;
-      Next: TNativeResources;
-    end;
+  private
+    type
+      TCloseState = (csOpen, csClosing, csClosed, csFailed, csQuarantined);
+      TNativeResources = class
+        Graph: TCpuGraph;
+        Cuda: TCudaExecution;
+        Workspace: TCudaWorkspace;
+        Next: TNativeResources;
+      end;
   private
     FNative: TNativeResources;
     FCloseState: TCloseState;
@@ -147,13 +148,13 @@ begin
       if Value >= 80 then
         Probabilities[I] := 1
       else if Value <= -104 then
-          Probabilities[I] := 0
-        else if Value >= 0 then
-            Probabilities[I] := 1 / (1 + Exp(-Value))
-          else begin
-            Exponent := Exp(Value);
-            Probabilities[I] := Exponent / (1 + Exponent);
-          end;
+        Probabilities[I] := 0
+      else if Value >= 0 then
+        Probabilities[I] := 1 / (1 + Exp(-Value))
+      else begin
+        Exponent := Exp(Value);
+        Probabilities[I] := Exponent / (1 + Exponent);
+      end;
       Inc(I);
     end;
   end;
@@ -328,7 +329,7 @@ begin
     if CleanupDiagnostic = '' then
       CleanupDiagnostic := FCloseError
     else if Pos(Operation + ': ' + Detail, CleanupDiagnostic) = 0 then
-        CleanupDiagnostic := CleanupDiagnostic + ' ' + Operation + ': ' + Detail;
+      CleanupDiagnostic := CleanupDiagnostic + ' ' + Operation + ': ' + Detail;
   finally
     LeaveCriticalSection(CleanupLock);
   end;
@@ -472,9 +473,9 @@ begin
     if Quarantined then
       FCloseState := csQuarantined
     else if (FCloseError <> '') or (FNative <> nil) or FContextUncertain then
-        FCloseState := csFailed
-      else
-        FCloseState := csClosed;
+      FCloseState := csFailed
+    else
+      FCloseState := csClosed;
   end;
 end;
 

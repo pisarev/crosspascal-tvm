@@ -435,36 +435,36 @@ begin
       CoefBase := PSingle(Detection.data) + Index + CoefStartIndex * N;
     end
     else if Detection.shape[1] = NumFeatures then
+    begin
+      CoefStep := 1;
+      CoefBase := PSingle(Detection.data) + Index * NumFeatures + CoefStartIndex;
+    end
+    else if Detection.shape[0] = NumFeatures then
+    begin
+      CoefStep := N;
+      CoefBase := PSingle(Detection.data) + CoefStartIndex * N + Index;
+    end
+    else begin
+      if Assigned(Error) then
       begin
-        CoefStep := 1;
-        CoefBase := PSingle(Detection.data) + Index * NumFeatures + CoefStartIndex;
-      end
-      else if Detection.shape[0] = NumFeatures then
-        begin
-          CoefStep := N;
-          CoefBase := PSingle(Detection.data) + CoefStartIndex * N + Index;
-        end
-        else begin
-          if Assigned(Error) then
-          begin
-            if Detection.ndim > 1 then
-              J := Detection.shape[2]
-            else
-              J := -1;
-            Error^ := Format(
-              'TYolo11.ComposeMasksFromProto: Cannot determine coefficient layout from Detection tensor shape (ndim: %d, shape[0]: %d, shape[1]: %d, shape[2]: %d) and NumFeatures: %d for index %d',
-              [
-                Detection.ndim,
-                Detection.shape[0],
-                Detection.shape[1],
-                J,
-                NumFeatures,
-                I
-              ]
-            );
-          end;
-          Exit(False);
-        end;
+        if Detection.ndim > 1 then
+          J := Detection.shape[2]
+        else
+          J := -1;
+        Error^ := Format(
+          'TYolo11.ComposeMasksFromProto: Cannot determine coefficient layout from Detection tensor shape (ndim: %d, shape[0]: %d, shape[1]: %d, shape[2]: %d) and NumFeatures: %d for index %d',
+          [
+            Detection.ndim,
+            Detection.shape[0],
+            Detection.shape[1],
+            J,
+            NumFeatures,
+            I
+          ]
+        );
+      end;
+      Exit(False);
+    end;
     for J := 0 to NumMaskCoeffs - 1 do
     begin
       Ptr.Prototype := PSingle(Prototype.data) + J * W * H;
@@ -563,9 +563,9 @@ begin
   if FList[Integer(ALeft)].Score > FList[Integer(ARight)].Score then
     Result := -1
   else if FList[Integer(ARight)].Score > FList[Integer(ALeft)].Score then
-      Result := 1
-    else
-      Result := 0;
+    Result := 1
+  else
+    Result := 0;
 end;
 {$ENDIF}
 

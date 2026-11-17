@@ -141,11 +141,11 @@ begin
     end;
   end
   else if Exponent = 31 then
-      FloatUnion.Int32 := (Sign shl 31) or ($FF shl 23) or (Mantissa shl 13)
-    else begin
-      Exponent := Exponent + (127 - 15);
-      FloatUnion.Int32 := (Sign shl 31) or (LongWord(Exponent) shl 23) or (Mantissa shl 13);
-    end;
+    FloatUnion.Int32 := (Sign shl 31) or ($FF shl 23) or (Mantissa shl 13)
+  else begin
+    Exponent := Exponent + (127 - 15);
+    FloatUnion.Int32 := (Sign shl 31) or (LongWord(Exponent) shl 23) or (Mantissa shl 13);
+  end;
   Result := FloatUnion.Float32;
 end;
 

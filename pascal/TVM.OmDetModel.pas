@@ -37,18 +37,19 @@ type
   end;
 
   TOmDetModel = class
-  private type
-    TCloseState = (csOpen, csClosing, csClosed, csFailed, csQuarantined);
-    TNativeResources = class
-      Graphs: array[0..1] of TCpuGraph;
-      Workspaces: array[0..1] of TCudaWorkspace;
-      Cuda: TCudaExecution;
-      Next: TNativeResources;
-    end;
-    TCacheEntry = record
-      Sequence: TClipSequence;
-      Hidden: TArray<Single>;
-    end;
+  private
+    type
+      TCloseState = (csOpen, csClosing, csClosed, csFailed, csQuarantined);
+      TNativeResources = class
+        Graphs: array[0..1] of TCpuGraph;
+        Workspaces: array[0..1] of TCudaWorkspace;
+        Cuda: TCudaExecution;
+        Next: TNativeResources;
+      end;
+      TCacheEntry = record
+        Sequence: TClipSequence;
+        Hidden: TArray<Single>;
+      end;
   private
     FNative: TNativeResources;
     FCloseState: TCloseState;
@@ -308,7 +309,7 @@ begin
     if CleanupDiagnostic = '' then
       CleanupDiagnostic := FCloseError
     else if Pos(Operation + ': ' + Detail, CleanupDiagnostic) = 0 then
-        CleanupDiagnostic := CleanupDiagnostic + ' ' + Operation + ': ' + Detail;
+      CleanupDiagnostic := CleanupDiagnostic + ' ' + Operation + ': ' + Detail;
   finally
     LeaveCriticalSection(CleanupLock);
   end;
@@ -460,9 +461,9 @@ begin
     if Quarantined then
       FCloseState := csQuarantined
     else if (FCloseError <> '') or (FNative <> nil) or FContextUncertain then
-        FCloseState := csFailed
-      else
-        FCloseState := csClosed;
+      FCloseState := csFailed
+    else
+      FCloseState := csClosed;
   end;
 end;
 

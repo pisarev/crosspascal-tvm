@@ -21,29 +21,30 @@ uses
 
 type
   TQwenVLCpu = class
-  private type
-    TParameter = record
-      FileData: TMappedModelFile;
-      Shape: TArray<Int64>;
-      Bits: Integer;
-    end;
-    TUploadedWeights = TDictionary<TMappedModelFile, TTVMFFIObjectHandle>;
-    TGraph = record
-      VM: TCpuGraph;
-      Weights: TTensorHandles;
-      LibraryName: string;
-      Parameters: TArray<TParameter>;
-      Workspace: TCudaWorkspace;
-    end;
-    TPosition = array[0..2] of Int64;
-    TPrompt = record
-      Tokens: TArray<Integer>;
-      Rotary: TArray<TPosition>;
-      Features: TArray<TArray<Single>>;
-      NextPosition: Int64;
-      procedure AppendText(const IDs: array of Integer);
-      procedure AppendImage(const ID, Count, Grid, Width: Integer; const Encoded: TArray<Single>);
-    end;
+  private
+    type
+      TParameter = record
+        FileData: TMappedModelFile;
+        Shape: TArray<Int64>;
+        Bits: Integer;
+      end;
+      TUploadedWeights = TDictionary<TMappedModelFile, TTVMFFIObjectHandle>;
+      TGraph = record
+        VM: TCpuGraph;
+        Weights: TTensorHandles;
+        LibraryName: string;
+        Parameters: TArray<TParameter>;
+        Workspace: TCudaWorkspace;
+      end;
+      TPosition = array[0..2] of Int64;
+      TPrompt = record
+        Tokens: TArray<Integer>;
+        Rotary: TArray<TPosition>;
+        Features: TArray<TArray<Single>>;
+        NextPosition: Int64;
+        procedure AppendText(const IDs: array of Integer);
+        procedure AppendImage(const ID, Count, Grid, Width: Integer; const Encoded: TArray<Single>);
+      end;
   private
     FFolder: string;
     FCVLibrary: string;
@@ -720,8 +721,9 @@ begin
         Limit := Options.MaxNewTokens;
         LimitReason := 'manual_limit';
       end
-      else if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
-        (EffortBudget[Options.Effort] < Limit) then
+      else
+        if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
+          (EffortBudget[Options.Effort] < Limit) then
           begin
             Limit := EffortBudget[Options.Effort];
             LimitReason := 'effort_limit';

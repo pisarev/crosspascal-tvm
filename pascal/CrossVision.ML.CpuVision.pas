@@ -542,21 +542,21 @@ begin
           Role := 'scores';
         end
         else if State.Profile.Adapter = 'rtdetr' then
+        begin
+          if I = 0 then
           begin
-            if I = 0 then
-            begin
-              ExpectedShape := TArray<Int64>.Create(1, 300, 80);
-              Role := 'logits';
-            end
-            else begin
-              ExpectedShape := TArray<Int64>.Create(1, 300, 4);
-              Role := 'pred_boxes';
-            end;
+            ExpectedShape := TArray<Int64>.Create(1, 300, 80);
+            Role := 'logits';
           end
           else begin
-            ExpectedShape := TArray<Int64>.Create(1, 84, 8400);
-            Role := 'dense_detections';
+            ExpectedShape := TArray<Int64>.Create(1, 300, 4);
+            Role := 'pred_boxes';
           end;
+        end
+        else begin
+          ExpectedShape := TArray<Int64>.Create(1, 84, 8400);
+          Role := 'dense_detections';
+        end;
         Row := SaveAuditTensor(OutputTensors[I], ExpectedShape, State.Directory,
           'output-' + IntToStr(I) + '.f32', Role, Elements);
         Outputs.AddElement(Row);
@@ -668,9 +668,9 @@ begin
   if A.Score > B.Score then
     Result := -1
   else if A.Score < B.Score then
-      Result := 1
-    else
-      Result := A.ClassId - B.ClassId;
+    Result := 1
+  else
+    Result := A.ClassId - B.ClassId;
 end;
 
 function RunVisionBundle(const Profile: TCpuVisionProfile;
@@ -829,10 +829,11 @@ begin
           Scores, Labels, Places, InputName, @ErrorText) then
             raise Exception.Create('RT-DETR inference failed: ' + ErrorText);
       end
-      else if not TYolo11.Detect(Descriptor, Image, Ord(kDLCPU), 0,
+      else
+        if not TYolo11.Detect(Descriptor, Image, Ord(kDLCPU), 0,
         Profile.ScoreThreshold, Profile.NMSThreshold, Scores, Labels, Places,
         InputName, @ErrorText, ylDense) then
-          raise Exception.Create('YOLO inference failed: ' + ErrorText);
+            raise Exception.Create('YOLO inference failed: ' + ErrorText);
       Require((Length(Scores) = Length(Labels)) and (Length(Scores) = Length(Places)),
         'Detector output arrays have different lengths.');
       SetLength(Result.Detections, Length(Scores));

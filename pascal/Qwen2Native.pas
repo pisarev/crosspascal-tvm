@@ -168,8 +168,9 @@ begin
     Limit := Options.MaxNewTokens;
     Result.StopReason := 'max_new_tokens';
   end
-  else if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
-    (EffortBudget[Options.Effort] < Limit) then
+  else
+    if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
+      (EffortBudget[Options.Effort] < Limit) then
       begin
         Limit := EffortBudget[Options.Effort];
         Result.StopReason := 'effort_limit';

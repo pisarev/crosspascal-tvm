@@ -288,22 +288,21 @@ begin
   if DataType = 'float32' then
     DataBits := 32
   else if DataType = 'float16' then
-      DataBits := 16
-    else begin
-      if Assigned(Error) then
-        Error^ := 'Weights declare dtype ' + DataType +
-          '; supported dtypes are float32 and float16';
-      Exit;
-    end;
+    DataBits := 16
+  else begin
+    if Assigned(Error) then
+      Error^ := 'Weights declare dtype ' + DataType + '; supported dtypes are float32 and float16';
+    Exit;
+  end;
   if Target = 'cuda' then
     DeviceType := Ord(kDLCUDA)
   else if Target = 'cpu' then
-      DeviceType := Ord(kDLCPU)
-    else begin
-      if Assigned(Error) then
-        Error^ := 'Parameter index declares an unknown target: ' + Target;
-      Exit;
-    end;
+    DeviceType := Ord(kDLCPU)
+  else begin
+    if Assigned(Error) then
+      Error^ := 'Parameter index declares an unknown target: ' + Target;
+    Exit;
+  end;
   SetLength(ParamHandles, Length(Entries));
   for I := 0 to High(Entries) do
   begin
@@ -535,25 +534,25 @@ begin
       Answer.VObj := nil;
     end
     else if Answer.TypeIndex >= kTVMFFIStaticObjectBegin then
-      begin
-        if not TTVMRuntime.CallGlobal('ffi.ArrayGetItem',
-          [TTVMRuntime.AnyObject(Answer.VObj), TTVMRuntime.AnyInt(0)],
-          Res, Error) then
-            Exit;
-        if Res.TypeIndex <> kTVMFFITensor then
-        begin
-          if Assigned(Error) then
-            Error^ := Format('First tuple element has type_index %d instead of a tensor',
-              [Res.TypeIndex]);
+    begin
+      if not TTVMRuntime.CallGlobal('ffi.ArrayGetItem',
+        [TTVMRuntime.AnyObject(Answer.VObj), TTVMRuntime.AnyInt(0)],
+        Res, Error) then
           Exit;
-        end;
-        LogitsHandle := Res.VObj;
-      end
-      else begin
+      if Res.TypeIndex <> kTVMFFITensor then
+      begin
         if Assigned(Error) then
-          Error^ := Format('%s returned type_index %d', [Which, Answer.TypeIndex]);
+          Error^ := Format('First tuple element has type_index %d instead of a tensor',
+            [Res.TypeIndex]);
         Exit;
       end;
+      LogitsHandle := Res.VObj;
+    end
+    else begin
+      if Assigned(Error) then
+        Error^ := Format('%s returned type_index %d', [Which, Answer.TypeIndex]);
+      Exit;
+    end;
     Result := True;
   finally
     if Answer.TypeIndex >= kTVMFFIStaticObjectBegin then

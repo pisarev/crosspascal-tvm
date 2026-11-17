@@ -216,8 +216,9 @@ begin
     Limit := Options.MaxNewTokens;
     Reason := 'manual_limit';
   end
-  else if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
-    (EffortBudget[Options.Effort] < Limit) then
+  else
+    if (Options.MaxNewTokens = 0) and (EffortBudget[Options.Effort] > 0) and
+      (EffortBudget[Options.Effort] < Limit) then
       begin
         Limit := EffortBudget[Options.Effort];
         Reason := 'effort_limit';

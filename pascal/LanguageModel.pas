@@ -169,23 +169,23 @@ begin
       end;
     end
     else if FInfo.Architecture = 'gemma3n' then
-      begin
-        FGemma3n := TGemma3nNative.Create(FBundle, FRuntime, FOnStatus);
-        FInfo.ContextTokens := FGemma3n.ContextTokens;
-      end
-      else if FInfo.Architecture = 'gemma2' then
-        begin
-          FGemma2Cpu := TGemma2Cpu.Create(FBundle, FRuntime, FOnStatus);
-          FInfo.ContextTokens := FGemma2Cpu.ContextTokens;
-        end
-        else if FInfo.Architecture = 'qwen2_5_vl' then
-          begin
-            FQwenVLCpu := TQwenVLCpu.Create(FBundle, FRuntime, FOnStatus);
-            FInfo.ContextTokens := FQwenVLCpu.ContextTokens;
-          end
-          else
-            raise Exception.CreateFmt('No native runtime is available for %s on %s.',
-              [FInfo.Architecture, FInfo.Device]);
+    begin
+      FGemma3n := TGemma3nNative.Create(FBundle, FRuntime, FOnStatus);
+      FInfo.ContextTokens := FGemma3n.ContextTokens;
+    end
+    else if FInfo.Architecture = 'gemma2' then
+    begin
+      FGemma2Cpu := TGemma2Cpu.Create(FBundle, FRuntime, FOnStatus);
+      FInfo.ContextTokens := FGemma2Cpu.ContextTokens;
+    end
+    else if FInfo.Architecture = 'qwen2_5_vl' then
+    begin
+      FQwenVLCpu := TQwenVLCpu.Create(FBundle, FRuntime, FOnStatus);
+      FInfo.ContextTokens := FQwenVLCpu.ContextTokens;
+    end
+    else
+      raise Exception.CreateFmt('No native runtime is available for %s on %s.',
+        [FInfo.Architecture, FInfo.Device]);
     FLoaded := True;
   except
     Unload;
@@ -210,13 +210,13 @@ begin
     Result := QwenResultJSON(Answer);
   end
   else if FGemma3n <> nil then
-      Result := FGemma3n.Generate(Prompt, Options, Images, FOnStatus, FOnText, FShouldStop)
-    else if FGemma2Cpu <> nil then
-        Result := FGemma2Cpu.Generate(Prompt, Options, FOnStatus, FOnText, FShouldStop)
-      else if FQwenVLCpu <> nil then
-          Result := FQwenVLCpu.Generate(Prompt, Options, Images, FOnStatus, FOnText, FShouldStop)
-        else
-          raise Exception.Create('The native model session is unavailable.');
+    Result := FGemma3n.Generate(Prompt, Options, Images, FOnStatus, FOnText, FShouldStop)
+  else if FGemma2Cpu <> nil then
+    Result := FGemma2Cpu.Generate(Prompt, Options, FOnStatus, FOnText, FShouldStop)
+  else if FQwenVLCpu <> nil then
+    Result := FQwenVLCpu.Generate(Prompt, Options, Images, FOnStatus, FOnText, FShouldStop)
+  else
+    raise Exception.Create('The native model session is unavailable.');
 end;
 
 procedure TLanguageModel.Unload;

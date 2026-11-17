@@ -18,19 +18,20 @@ uses
 
 type
   TCudaExecution = class
-  private type
-    TInit = function(Flags: Cardinal): Integer; stdcall;
-    TDeviceGet = function(out Device: Integer; Ordinal: Integer): Integer; stdcall;
-    TDeviceAttribute = function(out Value: Integer; Attribute, Device: Integer): Integer; stdcall;
-    TDeviceName = function(Name: PAnsiChar; Count, Device: Integer): Integer; stdcall;
-    TRetain = function(out Context: Pointer; Device: Integer): Integer; stdcall;
-    TRelease = function(Device: Integer): Integer; stdcall;
-    TPush = function(Context: Pointer): Integer; stdcall;
-    TPop = function(out Context: Pointer): Integer; stdcall;
-    TSync = function: Integer; stdcall;
-    TMemoryInfo = function(out FreeBytes, TotalBytes: NativeUInt): Integer; stdcall;
-    TAlloc = function(out Address: UInt64; Bytes: NativeUInt): Integer; stdcall;
-    TFree = function(Address: UInt64): Integer; stdcall;
+  private
+    type
+      TInit = function(Flags: Cardinal): Integer; stdcall;
+      TDeviceGet = function(out Device: Integer; Ordinal: Integer): Integer; stdcall;
+      TDeviceAttribute = function(out Value: Integer; Attribute, Device: Integer): Integer; stdcall;
+      TDeviceName = function(Name: PAnsiChar; Count, Device: Integer): Integer; stdcall;
+      TRetain = function(out Context: Pointer; Device: Integer): Integer; stdcall;
+      TRelease = function(Device: Integer): Integer; stdcall;
+      TPush = function(Context: Pointer): Integer; stdcall;
+      TPop = function(out Context: Pointer): Integer; stdcall;
+      TSync = function: Integer; stdcall;
+      TMemoryInfo = function(out FreeBytes, TotalBytes: NativeUInt): Integer; stdcall;
+      TAlloc = function(out Address: UInt64; Bytes: NativeUInt): Integer; stdcall;
+      TFree = function(Address: UInt64): Integer; stdcall;
   private
     FDriver: HMODULE;
     FDevice: Integer;
@@ -58,14 +59,15 @@ type
   end;
 
   TCudaWorkspace = class
-  private type
-    TAlloc = function(Kind, Device: Integer; Bytes: UInt64; Code, Bits: Integer): Pointer; cdecl;
-    TRelease = function(Kind, Device: Integer; Address: Pointer): Integer; cdecl;
-    TBuffer = record
-      Address: UInt64;
-      Bytes: UInt64;
-      InUse: Boolean;
-    end;
+  private
+    type
+      TAlloc = function(Kind, Device: Integer; Bytes: UInt64; Code, Bits: Integer): Pointer; cdecl;
+      TRelease = function(Kind, Device: Integer; Address: Pointer): Integer; cdecl;
+      TBuffer = record
+        Address: UInt64;
+        Bytes: UInt64;
+        InUse: Boolean;
+      end;
   private
     FCuda: TCudaExecution;
     FLibrary: HMODULE;

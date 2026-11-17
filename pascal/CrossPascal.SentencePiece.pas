@@ -17,14 +17,15 @@ uses
 
 type
   TSentencePiece = class
-  private type
-    TLoad = function(Bytes: Pointer; Size: Integer): Pointer; cdecl;
-    TFree = procedure(Processor: Pointer); cdecl;
-    TID = function(Processor: Pointer; Piece: PAnsiChar): Integer; cdecl;
-    TEncode = function(Processor: Pointer; Text: PAnsiChar; Size: Integer; Output: PInteger;
-      Capacity: Integer): Integer; cdecl;
-    TDecode = function(Processor: Pointer; IDs: PInteger; Count: Integer; Output: PAnsiChar;
-      Capacity: Integer): Integer; cdecl;
+  private
+    type
+      TLoad = function(Bytes: Pointer; Size: Integer): Pointer; cdecl;
+      TFree = procedure(Processor: Pointer); cdecl;
+      TID = function(Processor: Pointer; Piece: PAnsiChar): Integer; cdecl;
+      TEncode = function(Processor: Pointer; Text: PAnsiChar; Size: Integer; Output: PInteger;
+        Capacity: Integer): Integer; cdecl;
+      TDecode = function(Processor: Pointer; IDs: PInteger; Count: Integer; Output: PAnsiChar;
+        Capacity: Integer): Integer; cdecl;
   private
     FLibrary: HMODULE;
     FProcessor: Pointer;

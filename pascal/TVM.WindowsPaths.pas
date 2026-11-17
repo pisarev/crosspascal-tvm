@@ -117,9 +117,9 @@ begin
   if Copy(FOriginal, 1, 4) = '\\?\' then
     Target := '\??\' + Copy(FOriginal, 5, MaxInt)
   else if Copy(FOriginal, 1, 2) = '\\' then
-      Target := '\??\UNC\' + Copy(FOriginal, 3, MaxInt)
-    else
-      Target := '\??\' + FOriginal;
+    Target := '\??\UNC\' + Copy(FOriginal, 3, MaxInt)
+  else
+    Target := '\??\' + FOriginal;
   NativeName := NativeString(Name);
   NativeTarget := NativeString(Target);
   FillChar(Attributes, SizeOf(Attributes), 0);

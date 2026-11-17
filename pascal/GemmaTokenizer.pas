@@ -75,9 +75,9 @@ begin
     if FCharCp[Mid] = Cp then
       Exit(FCharId[Mid])
     else if FCharCp[Mid] < Cp then
-        Lo := Mid + 1
-      else
-        Hi := Mid - 1;
+      Lo := Mid + 1
+    else
+      Hi := Mid - 1;
   end;
   Result := -1;
 end;
@@ -291,25 +291,25 @@ begin
     Result := 1;
   end
   else if Cp < $800 then
-    begin
-      Buf[0] := Byte($C0 or (Cp shr 6));
-      Buf[1] := Byte($80 or (Cp and $3F));
-      Result := 2;
-    end
-    else if Cp < $10000 then
-      begin
-        Buf[0] := Byte($E0 or (Cp shr 12));
-        Buf[1] := Byte($80 or ((Cp shr 6) and $3F));
-        Buf[2] := Byte($80 or (Cp and $3F));
-        Result := 3;
-      end
-      else begin
-        Buf[0] := Byte($F0 or (Cp shr 18));
-        Buf[1] := Byte($80 or ((Cp shr 12) and $3F));
-        Buf[2] := Byte($80 or ((Cp shr 6) and $3F));
-        Buf[3] := Byte($80 or (Cp and $3F));
-        Result := 4;
-      end;
+  begin
+    Buf[0] := Byte($C0 or (Cp shr 6));
+    Buf[1] := Byte($80 or (Cp and $3F));
+    Result := 2;
+  end
+  else if Cp < $10000 then
+  begin
+    Buf[0] := Byte($E0 or (Cp shr 12));
+    Buf[1] := Byte($80 or ((Cp shr 6) and $3F));
+    Buf[2] := Byte($80 or (Cp and $3F));
+    Result := 3;
+  end
+  else begin
+    Buf[0] := Byte($F0 or (Cp shr 18));
+    Buf[1] := Byte($80 or ((Cp shr 12) and $3F));
+    Buf[2] := Byte($80 or ((Cp shr 6) and $3F));
+    Buf[3] := Byte($80 or (Cp and $3F));
+    Result := 4;
+  end;
 end;
 
 function TGemmaTokenizer.Encode(const Text: UnicodeString): TArray<Integer>;
