@@ -98,12 +98,7 @@ begin
     Data.Free;
   end;
   FTokenizer := TQwenTokenizer.Create;
-  Tokens := ReadModelJSON(BundleMember(Folder, 'tokenizer.json'));
-  try
-    FTokenizer.LoadByteLevelJSON(ModelObject(Tokens, 'Qwen2 tokenizer'));
-  finally
-    Tokens.Free;
-  end;
+  FTokenizer.LoadByteLevelFile(BundleMember(Folder, 'tokenizer.json'));
   FEOS := FTokenizer.SpecialId('<|im_end|>');
   FEndText := FTokenizer.SpecialId('<|endoftext|>');
   RequireCpu((FEOS >= 0) and (FEOS < FGraph.Vocabulary) and (FEndText >= 0) and

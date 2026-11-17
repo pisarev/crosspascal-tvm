@@ -28,20 +28,28 @@ type
         Id: Integer;
         Text: UnicodeString;
       end;
+      TVocabularyEntry = record
+        Name: UnicodeString;
+        ID: Integer;
+      end;
     var
       FTokenData: TBytes;
       FTokenAt: array of TSpan;
       FSingle: array[0..255] of Integer;
       FSpecials: array of TSpecial;
       FLoaded: Boolean;
+      FIncludeMarks: Boolean;
     function PieceToIds(const Piece: TBytes): TArray<Integer>;
     function DecodeText(const Ids: array of Integer; const CompleteOnly: Boolean): UnicodeString;
     procedure SplitPiece(const Text: UnicodeString; const From, Upto: Integer;
       var Ids: TArray<Integer>; var Count: Integer);
     procedure Clear;
+    procedure LoadByteLevelCore(const Data: TJSONObject;
+      const Vocabulary: TArray<TVocabularyEntry>);
   public
     function Load(const Directory: string; const Error: PString): Boolean; override;
     procedure LoadByteLevelJSON(const Data: TJSONObject);
+    procedure LoadByteLevelFile(const FileName: UnicodeString);
     function Loaded: Boolean; override;
     function TokenCount: Integer; override;
     function Encode(const Text: UnicodeString): TArray<Integer>; overload; override;
@@ -55,7 +63,8 @@ function NormalizeNFCWide(const Text: UnicodeString): UnicodeString;
 implementation
 
 uses
-  {$IFDEF FPC}Generics.Collections{$ELSE}System.Generics.Collections{$ENDIF}
+  {$IFDEF FPC}Generics.Collections{$ELSE}System.Generics.Collections{$ENDIF},
+  CrossPascal.TokenizerJson
   {$IFDEF MSWINDOWS}, {$IFDEF FPC}Windows{$ELSE}Winapi.Windows{$ENDIF}{$ENDIF};
 
 {$IFDEF MSWINDOWS}
@@ -105,6 +114,7 @@ var
   I: Integer;
 begin
   FLoaded := False;
+  FIncludeMarks := False;
   ClearMerges;
   SetLength(FTokenData, 0);
   SetLength(FTokenAt, 0);
@@ -203,6 +213,72 @@ begin
 end;
 
 procedure TQwenTokenizer.LoadByteLevelJSON(const Data: TJSONObject);
+{$IFDEF FPC}
+var
+  Model, Vocabulary: TJSONObject;
+  I: Integer;
+{$ENDIF}
+begin
+  Clear;
+  {$IFDEF FPC}
+  if (Data <> nil) and (Data.GetValue('model') is TJSONObject) then
+  begin
+    Model := TJSONObject(Data.GetValue('model'));
+    if Model.GetValue('vocab') is TJSONObject then
+    begin
+      Vocabulary := TJSONObject(Model.GetValue('vocab'));
+      for I := 0 to Vocabulary.Count - 1 do
+        if Length(Vocabulary.Names[I]) >= 255 then
+          raise Exception.Create('FPC JSON property-name limit reached; use LoadByteLevelFile for this tokenizer');
+    end;
+  end;
+  {$ENDIF}
+  LoadByteLevelCore(Data, nil);
+end;
+
+procedure TQwenTokenizer.LoadByteLevelFile(const FileName: UnicodeString);
+var
+  Reader: TUnicodeJsonReader;
+  Data: TJSONValue;
+  Vocabulary: TArray<TVocabularyEntry>;
+  Text: UnicodeString;
+  Count: Integer;
+begin
+  Clear;
+  Reader := TUnicodeJsonReader.Create(FileName);
+  try
+    Reader.SeekMember('model');
+    Reader.SeekMember('vocab');
+    Reader.Expect('{');
+    Count := 0;
+    if not Reader.Take('}') then
+      repeat
+        if Count = Length(Vocabulary) then SetLength(Vocabulary, Count * 2 + 1024);
+        if Count >= 1000000 then raise Exception.Create('Unsupported Qwen vocabulary size');
+        Vocabulary[Count].Name := Reader.ReadMember;
+        Vocabulary[Count].ID := Reader.ReadInteger;
+        Inc(Count);
+      until not Reader.More('}');
+    SetLength(Vocabulary, Count);
+    Text := Reader.Text;
+    if (Text <> '') and (Text[1] = #$FEFF) then Delete(Text, 1, 1);
+    Data := ParseCrossJSON(Text);
+    try
+      if not (Data is TJSONObject) then raise Exception.Create('Invalid Qwen tokenizer JSON');
+      LoadByteLevelCore(TJSONObject(Data), Vocabulary);
+    finally
+      Data.Free;
+    end;
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TQwenTokenizer.LoadByteLevelCore(const Data: TJSONObject;
+  const Vocabulary: TArray<TVocabularyEntry>);
+const
+  MarkPattern = '(?i:''s|''t|''re|''ve|''m|''ll|''d)|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+' +
+    '|\p{N}| ?[^\s\p{L}\p{M}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+';
 var
   Names: TDictionary<UnicodeString, Integer>;
   Model, Vocab, Entry, Normalizer, Decoder: TJSONObject;
@@ -210,9 +286,10 @@ var
   Row: TJSONValue;
   ToByte: array[0..511] of Integer;
   Used: TArray<Boolean>;
-  I, J, ID, Offset, Next, Code, Left, Right, Joined, Split: Integer;
+  I, J, ID, Offset, Next, Code, Left, Right, Joined, Split, VocabularyCount: Integer;
   Name, A, B: UnicodeString;
   Raw: UTF8String;
+  PreTokenizer, Parts, Pattern: TJSONValue;
 
   function ObjectValue(const Value: TJSONValue): TJSONObject;
   begin
@@ -235,6 +312,28 @@ var
 
 begin
   Clear;
+  PreTokenizer := Data.GetValue('pre_tokenizer');
+  if PreTokenizer is TJSONObject then
+  begin
+    Parts := TJSONObject(PreTokenizer).GetValue('pretokenizers');
+    if Parts is TJSONArray then
+      for I := 0 to TJSONArray(Parts).Count - 1 do
+      begin
+        Row := TJSONArray(Parts).Items[I];
+        if not (Row is TJSONObject) then Continue;
+        Pattern := TJSONObject(Row).GetValue('pattern');
+        if not (Pattern is TJSONObject) then Continue;
+        Pattern := TJSONObject(Pattern).GetValue('Regex');
+        if not (Pattern is TJSONString) then Continue;
+        Name := JSONValueText(Pattern);
+        if Pos('\p{M}', Name) > 0 then
+        begin
+          if Name <> MarkPattern then
+            raise Exception.Create('Unsupported Qwen mark-aware split pattern');
+          FIncludeMarks := True;
+        end;
+      end;
+  end;
   Normalizer := ObjectValue(Data.GetValue('normalizer'));
   Decoder := ObjectValue(Data.GetValue('decoder'));
   Model := ObjectValue(Data.GetValue('model'));
@@ -245,12 +344,16 @@ begin
   Vocab := ObjectValue(Model.GetValue('vocab'));
   Merges := ArrayValue(Model.GetValue('merges'));
   Added := ArrayValue(Data.GetValue('added_tokens'));
-  if (Vocab.Count < 256) or (Vocab.Count > 1000000) or
+  if Length(Vocabulary) > 0 then
+    VocabularyCount := Length(Vocabulary)
+  else
+    VocabularyCount := Vocab.Count;
+  if (VocabularyCount < 256) or (VocabularyCount > 1000000) or
     (Merges.Count > 1000000) or (Added.Count > 10000) then
       raise Exception.Create('Unsupported Qwen tokenizer size');
-  SetLength(FTokenAt, Vocab.Count + Added.Count);
+  SetLength(FTokenAt, VocabularyCount + Added.Count);
   SetLength(Used, Length(FTokenAt));
-  SetLength(FTokenData, Vocab.Count * 8);
+  SetLength(FTokenData, VocabularyCount * 8);
   for I := Low(ToByte) to High(ToByte) do ToByte[I] := -1;
   Next := 256;
   for I := 0 to 255 do
@@ -263,10 +366,19 @@ begin
   Offset := 0;
   Names := TDictionary<UnicodeString, Integer>.Create;
   try
-    for I := 0 to Vocab.Count - 1 do
+    for I := 0 to VocabularyCount - 1 do
     begin
-      Name := JSONObjectName(Vocab, I);
-      ID := TokenID(JSONObjectValue(Vocab, I));
+      if Length(Vocabulary) > 0 then
+      begin
+        Name := Vocabulary[I].Name;
+        ID := Vocabulary[I].ID;
+        if (ID < 0) or (ID >= Length(FTokenAt)) then
+          raise Exception.Create('Invalid Qwen tokenizer ID');
+      end
+      else begin
+        Name := JSONObjectName(Vocab, I);
+        ID := TokenID(JSONObjectValue(Vocab, I));
+      end;
       if Used[ID] or (Name = '') then raise Exception.Create('Invalid Qwen vocabulary entry');
       Used[ID] := True;
       Names.Add(Name, ID);
@@ -367,7 +479,8 @@ begin
     Result[I] := Work[I];
 end;
 
-function MatchLength(const Text: UnicodeString; const Start, Upto: Integer): Integer;
+function MatchLength(const Text: UnicodeString; const Start, Upto: Integer;
+  const IncludeMarks: Boolean): Integer;
 
   function Letter(const I: Integer): Boolean;
   begin
@@ -377,6 +490,13 @@ function MatchLength(const Text: UnicodeString; const Start, Upto: Integer): Int
   function Number(const I: Integer): Boolean;
   begin
     Result := (I >= 1) and (I <= Upto) and TCharacter.IsNumber(Text, I);
+  end;
+
+  function LetterOrMark(const I: Integer): Boolean;
+  begin
+    Result := Letter(I) or (IncludeMarks and (I >= 1) and (I <= Upto) and
+      (TCharacter.GetUnicodeCategory(Text, I) in [TUnicodeCategory.ucNonSpacingMark,
+        TUnicodeCategory.ucCombiningMark, TUnicodeCategory.ucEnclosingMark]));
   end;
 
   function Space(const I: Integer): Boolean;
@@ -420,10 +540,16 @@ begin
   At := Start;
   if not Letter(At) and not Number(At) and not Break_(At) then
     At := At + Step(At);
-  if Letter(At) then
+  if LetterOrMark(At) then
   begin
-    while Letter(At) do
+    while LetterOrMark(At) do
       At := At + Step(At);
+    Exit(At - Start);
+  end;
+  if LetterOrMark(Start) then
+  begin
+    At := Start;
+    while LetterOrMark(At) do At := At + Step(At);
     Exit(At - Start);
   end;
   if Number(Start) then
@@ -432,7 +558,7 @@ begin
   if Text[At] = ' ' then
     Inc(At);
   Save := At;
-  while (At <= Upto) and not Space(At) and not Letter(At) and not Number(At) do
+  while (At <= Upto) and not Space(At) and not LetterOrMark(At) and not Number(At) do
     At := At + Step(At);
   if At > Save then
   begin
@@ -474,7 +600,7 @@ begin
   At := From;
   while At <= Upto do
   begin
-    Taken := MatchLength(Text, At, Upto);
+    Taken := MatchLength(Text, At, Upto, FIncludeMarks);
     if Taken <= 0 then
       Taken := StepAt(Text, At);
     Chunk := Copy(Text, At, Taken);

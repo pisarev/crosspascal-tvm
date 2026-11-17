@@ -1,0 +1,28 @@
+{
+  "schema": "crosspascal.sentencepiece-native-build-source.v1",
+  "component": "SentencePiece C ABI wrapper",
+  "upstream_repository": "https://github.com/google/sentencepiece",
+  "upstream_revision": "31646a467d2051eb904e0b45de3a73e91fe1c1e3",
+  "upstream_tracked_modifications": false,
+  "wrapper_sources": [
+    {
+      "file": "CMakeLists.txt",
+      "sha256": "ab34a9b5641c584fa7c80bb1037656259a3e3d8f3a7812dc16015fbca8ab8f9c"
+    },
+    {
+      "file": "sentencepiece_c.cpp",
+      "sha256": "bff1e68b2f3f1d780a1c9438f727f60ce4c7536a376467057ae3de348994a962"
+    }
+  ],
+  "generator": "Visual Studio 16 2019",
+  "platform": "windows-x86_64",
+  "configuration": "Release",
+  "binary": {
+    "file": "crosspascal_sentencepiece.dll",
+    "bytes": 386560,
+    "sha256": "935c6ea66b7101f40618a7c60ce32eece7c1ddc52ce33e09f94ee711b3a9cca1"
+  },
+  "licenses": "../../licenses/sentencepiece-0.2.1/SOURCE.json",
+  "reproducible_rebuild_claim": false,
+  "scope": "Existing build source and output were inspected: wrapper source hashes match these files, the checked upstream source revision has no tracked changes, and the supplied DLL matches the existing Release build output. This is source/build attribution, not a claim that rebuilding reproduces the binary hash."
+}

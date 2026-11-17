@@ -207,7 +207,8 @@ var
   Original, Quantized, Binding, Spec, SliceBinding: TJSONObject;
   Uploads: TArray<TCudaWeight>;
   Slice: TJSONValue;
-  Name, Kind, Path: string;
+  Name, Kind, Path, Scheme: string;
+  BlockScales: Boolean;
   FileData: TMappedModelFile;
   I, RuntimeCount: Integer;
   Offset, Index, Bytes: Int64;
@@ -222,6 +223,10 @@ begin
   Bindings := ModelArray(Manifest.GetValue('gpu_bindings'), 'CUDA input bindings');
   RequireCpu(Bindings.Count > RuntimeCount, 'Missing CUDA weight bindings');
   Original := ModelObject(Manifest.GetValue('parameters'), 'graph parameters');
+  Scheme := ModelText(ModelObject(Manifest.GetValue('quantization'), 'quantization').GetValue('scheme'));
+  BlockScales := Scheme = 'source-q8_0-block32-f32-scales';
+  RequireCpu(BlockScales or (Scheme = 'symmetric-int8-per-row'),
+    'Unsupported Gemma 3n CUDA weight encoding: ' + Scheme);
   Quantized := ModelObject(ModelObject(Manifest.GetValue('quantization'), 'quantization').GetValue('weights'),
     'quantized weights');
   SetLength(Uploads, Bindings.Count - RuntimeCount);
@@ -242,8 +247,18 @@ begin
     begin
       Spec := ModelObject(Quantized.GetValue(Name), Name);
       Uploads[I].Shape := ModelShape(Spec.GetValue('shape'));
+      RequireCpu(Length(Uploads[I].Shape) = 2, 'Expected matrix-shaped CUDA Q8 weight');
+      if BlockScales then
+        RequireCpu((ModelInt(Spec.GetValue('block_size'), 'source Q8_0 block size') = 32) and
+          (ModelInt(Spec.GetValue('source_gguf_type'), 'source GGUF type') = 8) and
+          (Uploads[I].Shape[1] mod 32 = 0), 'Invalid source Q8_0 encoding');
       if Kind = 'scale' then
-        SetLength(Uploads[I].Shape, 1)
+      begin
+        if BlockScales then
+          Uploads[I].Shape[1] := Uploads[I].Shape[1] div 32
+        else
+          SetLength(Uploads[I].Shape, 1);
+      end
       else begin
         Uploads[I].Code := kDLInt;
         Uploads[I].Bits := 8;
@@ -396,7 +411,10 @@ begin
         LoadCuda(Manifest, Weights)
       else begin
         ReadWeights(Manifest, Weights, FDecodeWeights);
-        FDecode := TCpuGraph.Create(BundleMember(FFolder, 'gemma3n-cpu.dll'));
+        LibraryName := ModelText(Manifest.GetValue('library'));
+        if LibraryName = '' then LibraryName := 'gemma3n-cpu.dll';
+        RequireCpu(Hashes.GetValue(LibraryName) <> nil, 'Missing Gemma 3n CPU library hash');
+        FDecode := TCpuGraph.Create(BundleMember(FFolder, LibraryName));
       end;
       if Manifest.GetValue('prefill') <> nil then
       begin

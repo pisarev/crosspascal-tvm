@@ -104,11 +104,14 @@ threadvar
   ActiveWorkspace: TCudaWorkspace;
 
 function ReadLanguageManifest(const Folder: string): TJSONValue;
+const
+  QwenIdentity: array[0..4] of string = ('backend', 'weight_storage',
+    'source_convention', 'source_repository', 'source_revision');
 var
   Index, Selected: TJSONValue;
   Root, Variants, Model: TJSONObject;
   Cuda: TCudaExecution;
-  Target, Member: string;
+  Target, Member, Identity: string;
 begin
   Index := ReadModelJSON(BundleMember(Folder, 'model.json'));
   try
@@ -119,7 +122,10 @@ begin
       Index := nil;
       Exit;
     end;
-    RequireCpu(ModelText(Root.GetValue('backend')) = 'TVM CUDA W8A32', 'Invalid CUDA variant index');
+    RequireCpu((ModelText(Root.GetValue('backend')) = 'TVM CUDA W8A32') or
+      ((ModelText(Root.GetValue('schema')) = 'crosspascal.qwen35.text.v1') and
+      (ModelText(Root.GetValue('architecture')) = 'qwen3_5') and
+      (ModelText(Root.GetValue('device')) = 'cuda')), 'Invalid CUDA variant index');
     Variants := ModelObject(Root.GetValue('cuda_variants'), 'CUDA model variants');
     Cuda := TCudaExecution.Create;
     try
@@ -128,13 +134,30 @@ begin
       Cuda.Free;
     end;
     Member := ModelText(Variants.GetValue(Target));
-    RequireCpu(Member <> '', 'This bundle has no ' + Target + ' variant. Choose a CPU bundle.');
+    RequireCpu(Member <> '', 'This bundle has no compatible CUDA variant (' + Target + ').');
     Selected := ReadModelJSON(BundleMember(Folder, Member));
     try
       Model := ModelObject(Selected, 'CUDA language model variant');
       RequireCpu((ModelText(Model.GetValue('cuda_arch')) = Target) and
         (ModelText(Model.GetValue('schema')) = ModelText(Root.GetValue('schema'))),
         'The selected CUDA model does not match the variant index');
+      if ModelText(Root.GetValue('architecture')) <> '' then
+        RequireCpu(ModelText(Model.GetValue('architecture')) = ModelText(Root.GetValue('architecture')),
+          'The selected CUDA architecture does not match the variant index');
+      if ModelText(Root.GetValue('device')) <> '' then
+        RequireCpu(ModelText(Model.GetValue('device')) = ModelText(Root.GetValue('device')),
+          'The selected CUDA device does not match the variant index');
+      if ModelText(Root.GetValue('backend')) <> '' then
+        RequireCpu(ModelText(Model.GetValue('backend')) = ModelText(Root.GetValue('backend')),
+          'The selected CUDA backend does not match the variant index');
+      if ModelText(Root.GetValue('schema')) = 'crosspascal.qwen35.text.v1' then
+        for Identity in QwenIdentity do
+          RequireCpu((ModelText(Root.GetValue(Identity)) <> '') and
+            (ModelText(Model.GetValue(Identity)) = ModelText(Root.GetValue(Identity))),
+            'The selected CUDA model does not match the variant index source');
+      if ModelText(Root.GetValue('source_sha256')) <> '' then
+        RequireCpu(ModelText(Model.GetValue('source_sha256')) = ModelText(Root.GetValue('source_sha256')),
+          'The selected CUDA checkpoint does not match the variant index');
       Result := Selected;
       Selected := nil;
     finally

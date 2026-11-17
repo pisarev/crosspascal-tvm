@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-022",
+  "release_id": "early-access-023",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -22,8 +22,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 8225,
-      "sha256": "31a90011f4e9db966e5ea26bfa370e9663278e4eeaae3b97662bd5fc49d9eeda"
+      "bytes": 11228,
+      "sha256": "be9390dd117e9b90ea8c08df7753eb3d571bdc4cc4f479b21b9e60f715c523c7"
     },
     {
       "path": "docs/PASCAL-API-NOTES.md",
@@ -49,6 +49,96 @@
       "path": "licenses/dlpack-1.3-LICENSE.txt",
       "bytes": 11345,
       "sha256": "3e8f6bc39276a586d60c8c5aaece2ff989262181cf2b3d2a128db58f97a9300c"
+    },
+    {
+      "path": "licenses/sentencepiece-0.2.1/LICENSE.txt",
+      "bytes": 11560,
+      "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+    },
+    {
+      "path": "licenses/sentencepiece-0.2.1/SOURCE.json",
+      "bytes": 1903,
+      "sha256": "f83ffc30f90825b86d12b2e5079efe7a0a6ba66a203b648be0f030bda1d49e6f"
+    },
+    {
+      "path": "licenses/sentencepiece-0.2.1/absl-LICENSE.txt",
+      "bytes": 11568,
+      "sha256": "7871ddb0d7635157a82afc21720d795660a024c59652b7a5b1ed812355320fdc"
+    },
+    {
+      "path": "licenses/sentencepiece-0.2.1/darts_clone-LICENSE.txt",
+      "bytes": 1491,
+      "sha256": "ed8437dc7358a40ef10afd3635ac1cd43c88fbaaaf6cd27c414f8ada5d68f447"
+    },
+    {
+      "path": "licenses/sentencepiece-0.2.1/esaxx-LICENSE.txt",
+      "bytes": 1136,
+      "sha256": "c32d2b3a60ed4b71616dd544f0865e171631ce26d3a3855c43428e61cbf89d67"
+    },
+    {
+      "path": "licenses/sentencepiece-0.2.1/protobuf-lite-LICENSE.txt",
+      "bytes": 1764,
+      "sha256": "f4df8b2457697851385d9ebb93267832c1dfa24e0e61881952f6b0c452663dc9"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/SOURCE.json",
+      "bytes": 6021,
+      "sha256": "4ee55141de81b7fe73ae3ab583c4a46aa423a11766a834ce97150645c5c87dd1"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/LICENSE",
+      "bytes": 12050,
+      "sha256": "ba75e3eb5689f23663bacffb0c646f46961c39850a3d4e2c6df535e99843c11e"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/NOTICE",
+      "bytes": 176,
+      "sha256": "010eea524d4764113d7407321481ebc2e9565c478dfb3e6167c4365598a07763"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/licenses/libbacktrace-LICENSE",
+      "bytes": 1507,
+      "sha256": "0b0d1dae2c2c3875d5f70bf1a543aa2bcf93b0d812a03c605ca0a032846c604d"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/LICENSE",
+      "bytes": 12308,
+      "sha256": "7cd3b9cb57596d291cc44488f7c55b5a91ea652dc2bb0ca6098d5508765c23e5"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/NOTICE",
+      "bytes": 169,
+      "sha256": "12f909aa8ba41e34538c42d511291bf47343281ef0310e331153e761623cc44e"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/licenses/LICENSE.builtin_fp16.txt",
+      "bytes": 17019,
+      "sha256": "815455237d89628f7b995a9e11a6e9074f7443afdf63507d715a676f80d874a4"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/licenses/LICENSE.cutlass.txt",
+      "bytes": 1541,
+      "sha256": "665b7956363c9bfa894c7e16023e3bcebb88ae5b2f6a57df32ef5a256092820f"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/licenses/LICENSE.cutlass_fpA_intB_gemm.txt",
+      "bytes": 11560,
+      "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/licenses/LICENSE.libflash_attn.txt",
+      "bytes": 1587,
+      "sha256": "c364d38c8ee8070159ad68f56a8bab4917b8d020548da33a01e036505c8e4add"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/licenses/LICENSE.tensorrt_llm.txt",
+      "bytes": 11560,
+      "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm/licenses/LICENSE.vllm.txt",
+      "bytes": 11558,
+      "sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6"
     },
     {
       "path": "native/paddle-clipper/LICENSE_1_0.txt",
@@ -79,6 +169,11 @@
       "path": "native/paddle-clipper/ppocr_db_jt_round.cpp",
       "bytes": 2502,
       "sha256": "e671516d8d204836979959d8b55e17b2b105dd821c2c805fdf357acc00def265"
+    },
+    {
+      "path": "native/sentencepiece/BUILD-SOURCE.json",
+      "bytes": 1297,
+      "sha256": "ad52c732bd08c4f54359750b597365abef59c5839b353b292f3ac1ef60bf5dc8"
     },
     {
       "path": "native/sentencepiece/CMakeLists.txt",
@@ -141,6 +236,11 @@
       "sha256": "115e8cbf62f4477dcf865c2fac37f01baa322b2785c0c8e3849b987dd48483bd"
     },
     {
+      "path": "pascal/CrossPascal.TokenizerJson.pas",
+      "bytes": 10418,
+      "sha256": "29432602ffc6faae84ccc507a070e45e3ee2c4182d92e40da142d3e75c64745b"
+    },
+    {
       "path": "pascal/CrossPascal.WinMemory.pas",
       "bytes": 1090,
       "sha256": "90ba589dc8c7e3e183988353366da58564f0e5c096f388c24c33b342ffe41cf3"
@@ -172,8 +272,8 @@
     },
     {
       "path": "pascal/Gemma3nNative.pas",
-      "bytes": 31507,
-      "sha256": "9aa7d08a0fbcaa1b852420d001f53b54737cc9e5dc85aa9ea7117f7e3115ab90"
+      "bytes": 33353,
+      "sha256": "e73765ec3e04ef809f984ff447d1b83f349e48ac1016842aae3177e9e9c7dab8"
     },
     {
       "path": "pascal/Gemma3nVision.pas",
@@ -187,13 +287,53 @@
     },
     {
       "path": "pascal/LanguageModel.pas",
-      "bytes": 8462,
-      "sha256": "e9927f4f0744b82e4512644e6cefe3c6f8890a1ed1bce91c9b11a509c656fd48"
+      "bytes": 9693,
+      "sha256": "02b567523aa060c102858eae22653714ad7da522c4231639e6dce20405fad36e"
+    },
+    {
+      "path": "pascal/LanguageReport.pas",
+      "bytes": 3570,
+      "sha256": "08b12638b38a879fa107c26c506f06a7d1de7077891c716c3142075ffff5476d"
     },
     {
       "path": "pascal/Qwen2Native.pas",
-      "bytes": 8915,
-      "sha256": "8a6063e79df0b6d77b2da01005d918def7d633d7d6409ba7b3efe9f4c5678049"
+      "bytes": 9054,
+      "sha256": "c68272b8a5326a0477ff73952165f9866fe9480c73adc52529b56fe8d862b491"
+    },
+    {
+      "path": "pascal/Qwen35CudaBuffers.pas",
+      "bytes": 5954,
+      "sha256": "3ae3833e4bff32db2ff79180ee3eeafc08a2c280d2545a890d571ab4bb746020"
+    },
+    {
+      "path": "pascal/Qwen35Native.pas",
+      "bytes": 40089,
+      "sha256": "a8a07f224d9132691edc385d2c2e452d769673279eb30f3d988b3c17f89d7403"
+    },
+    {
+      "path": "pascal/Qwen35PackedCuda.pas",
+      "bytes": 12190,
+      "sha256": "a06a42eaa01b1a40f54a2edeb4f54750ab7d3e2e272e6fb488da5d65ca458f4a"
+    },
+    {
+      "path": "pascal/Qwen35Prompt.pas",
+      "bytes": 7067,
+      "sha256": "36de2ac7575562c40b701fa232e10db1c0e6d00e6a5570ab6df8fad714816637"
+    },
+    {
+      "path": "pascal/Qwen35Session.pas",
+      "bytes": 20060,
+      "sha256": "cfba9e3a9d1281e60f12dfcd8498c4586e14b465390fb732085604d01d6d2bc7"
+    },
+    {
+      "path": "pascal/Qwen35Vision.pas",
+      "bytes": 19344,
+      "sha256": "5bd2b982129990ff0a8d3afad12fa4f75ac16a8a484aece33c0a6e98639d6779"
+    },
+    {
+      "path": "pascal/Qwen35Weights.pas",
+      "bytes": 12795,
+      "sha256": "cd77233af34a641ff1c62a2cc385671299fb748a5c8175645db52cf9f2640c5f"
     },
     {
       "path": "pascal/QwenCuda.pas",
@@ -207,13 +347,13 @@
     },
     {
       "path": "pascal/QwenTokenizer.pas",
-      "bytes": 18337,
-      "sha256": "7480e877514c43a8886cded00c935cd1e027ffbd5828447a45587c214a4ade30"
+      "bytes": 23322,
+      "sha256": "d51ccdea835923d7f4ed04ba91bea5719eca825f7b21e3f57f103bdf4aabc98a"
     },
     {
       "path": "pascal/QwenVLCpu.pas",
-      "bytes": 30651,
-      "sha256": "999c9ec869ab4fd193adc8c0b9d9f3a5152781f6773cdb516c040ab96afca130"
+      "bytes": 31357,
+      "sha256": "6697d153f8a1924e274b78084434a32ad045fad17b7d5161254c1774fb35d41e"
     },
     {
       "path": "pascal/TVM.BiRefNet.pas",
@@ -227,8 +367,8 @@
     },
     {
       "path": "pascal/TVM.CudaExecution.pas",
-      "bytes": 13061,
-      "sha256": "f8a2c941afda6575f00345aec3efb71c685e57c5355b640c6838b862931d8cc1"
+      "bytes": 15145,
+      "sha256": "1ca9474cc68a78c614ae747391d556e877f68a58984e6f3d346f3e0f48b32349"
     },
     {
       "path": "pascal/TVM.ImageInput.pas",
@@ -352,15 +492,20 @@
     },
     {
       "path": "scripts/install_tvm_windows.py",
-      "bytes": 9811,
-      "sha256": "f3ee260441aba2bd8695e3121dd54867a3b379f0eea32586f9b12ce89e1dbfab"
+      "bytes": 15997,
+      "sha256": "e448595de20b0cd7264419a49e981bb76bc7b8cf513779359ddf988436c1f5a8"
     },
     {
       "path": "scripts/verify_source.py",
       "bytes": 13549,
       "sha256": "e36b010d92dd4a3b209c0e9fffb8492f492278c9bb65827a7b0dcee8a3fbd4a0"
+    },
+    {
+      "path": "tests/TestQwen35Prompt.dpr",
+      "bytes": 3785,
+      "sha256": "8d8a12595cfe5bdf87618beb51812b56a836bdf06f1eefc06e85e7e32a8b0193"
     }
   ],
-  "source_revision": "source-update-20261117",
+  "source_revision": "early-access-023",
   "documentation_revision": "maintenance-20261110"
 }

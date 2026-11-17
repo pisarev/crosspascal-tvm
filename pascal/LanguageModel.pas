@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { LanguageModel                                                              }
 {                                                                            }
@@ -14,7 +14,7 @@ interface
 
 uses
   {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, QwenCuda, Gemma3nNative, Gemma2Cpu,
-  QwenVLCpu, Qwen2Native;
+  QwenVLCpu, Qwen2Native, Qwen35Session;
 
 type
   TLanguageOptions = TQwenGenerationOptions;
@@ -35,6 +35,7 @@ type
   private
     FQwen: TQwenCudaSession;
     FQwen2Native: TQwen2Native;
+    FQwen35: TQwen35Session;
     FGemma3n: TGemma3nNative;
     FGemma2Cpu: TGemma2Cpu;
     FQwenVLCpu: TQwenVLCpu;
@@ -65,7 +66,7 @@ function DefaultLanguageOptions: TLanguageOptions;
 implementation
 
 uses
-  {$IFDEF FPC}Classes{$ELSE}System.Classes{$ENDIF}, CrossPascal.Json, TVM.CpuGraph;
+  CrossPascal.Json, TVM.CpuGraph, TVM.CudaExecution;
 
 function DefaultLanguageOptions: TLanguageOptions;
 begin
@@ -91,56 +92,65 @@ end;
 
 class function TLanguageModel.Inspect(const Bundle: string): TLanguageCapabilities;
 var
-  Text: TStringList;
   Value: TJSONValue;
   Obj: TJSONObject;
   LibraryName, VisionManifest: string;
 begin
   Result := Default(TLanguageCapabilities);
-  Text := TStringList.Create;
+  Value := ReadLanguageManifest(Bundle);
   try
-    Text.LoadFromFile(IncludeTrailingPathDelimiter(Bundle) + 'model.json', TEncoding.UTF8);
-    Value := ParseCrossJSON(Text.Text);
-    try
-      if not (Value is TJSONObject) then raise Exception.Create('Invalid model.json');
-      Obj := TJSONObject(Value);
-      Result.Schema := TextField(Obj, 'schema');
-      Result.Architecture := TextField(Obj, 'architecture');
-      if Result.Architecture = '' then Result.Architecture := TextField(Obj, 'model_type');
-      LibraryName := TextField(Obj, 'library');
-      if LibraryName = 'qwen2-cuda.dll' then Result.Architecture := 'qwen2';
-      if (Result.Architecture <> 'qwen2') and (Result.Architecture <> 'gemma2') and
-        (Result.Architecture <> 'gemma3n') and (Result.Architecture <> 'qwen2_5_vl') then
-          raise Exception.Create('This model architecture needs a different runtime adapter.');
-      Result.ContextTokens := StrToIntDef(TextField(Obj, 'context'), 0);
-      if Result.ContextTokens = 0 then
-        Result.ContextTokens := StrToIntDef(TextField(Obj, 'context_window_size'), 0);
-      if (Result.Architecture = 'qwen2') and (Result.Schema <> 'crosspascal.qwen2.text.v1') then
-        Result.ContextTokens := QwenDefaultContextSize;
-      Result.Device := 'CPU';
-      if (Result.Architecture = 'qwen2') or (TextField(Obj, 'backend') = 'TVM CUDA W8A32') then
-        Result.Device := 'CUDA';
-      Result.Experimental := Result.Architecture <> 'qwen2';
-      Result.SupportsImages := False;
-      if (Result.Architecture = 'qwen2_5_vl') and
-        (TextField(Obj, 'schema') = 'crosspascal.qwen2_5_vl.v1') and
-        ((TextField(Obj, 'backend') = 'TVM LLVM CPU FP32') or
-        (TextField(Obj, 'backend') = 'TVM CUDA W8A32')) then
-          Result.SupportsImages := True;
-      if (Result.Architecture = 'gemma3n') and
-        ((TextField(Obj, 'backend') = 'TVM CUDA W8A32') or
-        (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32')) then
-        begin
-          VisionManifest := TextField(Obj, 'vision_manifest');
-          Result.SupportsImages := (VisionManifest <> '') and
-            FileExists(BundleMember(Bundle, VisionManifest));
-        end;
-      Result.ImageExplanation := 'This bundle accepts text only. Images need a vision encoder and a compatible multimodal runtime. Your image will not be sent or silently ignored.';
-    finally
-      Value.Free;
+    if not (Value is TJSONObject) then raise Exception.Create('Invalid model.json');
+    Obj := TJSONObject(Value);
+    Result.Schema := TextField(Obj, 'schema');
+    Result.Architecture := TextField(Obj, 'architecture');
+    if Result.Architecture = '' then Result.Architecture := TextField(Obj, 'model_type');
+    LibraryName := TextField(Obj, 'library');
+    if LibraryName = 'qwen2-cuda.dll' then Result.Architecture := 'qwen2';
+    if (Result.Architecture <> 'qwen2') and (Result.Architecture <> 'gemma2') and
+      (Result.Architecture <> 'gemma3n') and (Result.Architecture <> 'qwen2_5_vl') and
+      (Result.Architecture <> 'qwen3_5') then
+        raise Exception.Create('This model architecture needs a different runtime adapter.');
+    Result.ContextTokens := StrToIntDef(TextField(Obj, 'context'), 0);
+    if Result.ContextTokens = 0 then
+      Result.ContextTokens := StrToIntDef(TextField(Obj, 'context_window_size'), 0);
+    if (Result.Architecture = 'qwen2') and (Result.Schema <> 'crosspascal.qwen2.text.v1') then
+      Result.ContextTokens := QwenDefaultContextSize;
+    Result.Device := 'CPU';
+    if Result.Architecture = 'qwen3_5' then
+    begin
+      if (Result.Schema <> 'crosspascal.qwen35.text.v1') or
+        ((TextField(Obj, 'device') <> 'cpu') and (TextField(Obj, 'device') <> 'cuda')) then
+          raise Exception.Create('Expected a native Qwen 3.5/3.8 text bundle.');
+      Result.Device := UpperCase(TextField(Obj, 'device'));
     end;
+    if (Result.Architecture = 'qwen2') or (TextField(Obj, 'backend') = 'TVM CUDA W8A32') then
+      Result.Device := 'CUDA';
+    Result.Experimental := Result.Architecture <> 'qwen2';
+    Result.SupportsImages := False;
+    if (Result.Architecture = 'qwen2_5_vl') and
+      (TextField(Obj, 'schema') = 'crosspascal.qwen2_5_vl.v1') and
+      ((TextField(Obj, 'backend') = 'TVM LLVM CPU FP32') or
+      (TextField(Obj, 'backend') = 'TVM CUDA W8A32')) then
+        Result.SupportsImages := True;
+    if (Result.Architecture = 'gemma3n') and
+      ((TextField(Obj, 'backend') = 'TVM CUDA W8A32') or
+      (TextField(Obj, 'backend') = 'TVM LLVM CPU FP32')) then
+      begin
+        VisionManifest := TextField(Obj, 'vision_manifest');
+        Result.SupportsImages := (VisionManifest <> '') and
+          FileExists(BundleMember(Bundle, VisionManifest));
+      end;
+    if (Result.Architecture = 'qwen3_5') and (Result.Schema = 'crosspascal.qwen35.text.v1') then
+    begin
+      VisionManifest := TextField(Obj, 'vision_manifest');
+      Result.SupportsImages := (VisionManifest <> '') and (VisionManifest <> '.') and
+        (VisionManifest <> '..') and (Pos('/', VisionManifest) = 0) and
+        (Pos('\', VisionManifest) = 0) and (Pos(':', VisionManifest) = 0) and
+        FileExists(IncludeTrailingPathDelimiter(Bundle) + VisionManifest);
+    end;
+    Result.ImageExplanation := 'This bundle accepts text only. Images need a vision encoder and a compatible multimodal runtime. Your image will not be sent or silently ignored.';
   finally
-    Text.Free;
+    Value.Free;
   end;
 end;
 
@@ -153,7 +163,12 @@ begin
   FBundle := ExpandFileName(Bundle);
   FRuntime := ExpandFileName(RuntimeRoot);
   try
-    if FInfo.Architecture = 'qwen2' then
+    if FInfo.Architecture = 'qwen3_5' then
+    begin
+      FQwen35 := TQwen35Session.Create(FBundle, FRuntime, FOnStatus);
+      FInfo.ContextTokens := FQwen35.ContextTokens;
+    end
+    else if FInfo.Architecture = 'qwen2' then
     begin
       if not FileExists(IncludeTrailingPathDelimiter(FRuntime) + 'tvm_runtime_cuda.dll') then
         FRuntime := IncludeTrailingPathDelimiter(FRuntime) +
@@ -201,7 +216,9 @@ begin
   if not FLoaded then raise Exception.Create('Load a model first.');
   if (Length(Images) > 0) and not FInfo.SupportsImages then
     raise Exception.Create(FInfo.ImageExplanation);
-  if FInfo.Architecture = 'qwen2' then
+  if FQwen35 <> nil then
+    Result := FQwen35.Generate(Prompt, Options, Images, FOnStatus, FOnText, FShouldStop)
+  else if FInfo.Architecture = 'qwen2' then
   begin
     if FQwen2Native <> nil then
       Answer := FQwen2Native.Generate(Prompt, Options, FOnStatus, FOnText, FShouldStop)
@@ -224,6 +241,7 @@ begin
   FLoaded := False;
   if FQwen <> nil then FQwen.Unload;
   FreeAndNil(FQwen2Native);
+  FreeAndNil(FQwen35);
   FreeAndNil(FGemma3n);
   FreeAndNil(FGemma2Cpu);
   FreeAndNil(FQwenVLCpu);

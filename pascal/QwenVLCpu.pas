@@ -381,12 +381,7 @@ begin
     Data.Free;
   end;
   FTokenizer := TQwenTokenizer.Create;
-  Data := ReadModelJSON(BundleMember(FFolder, 'tokenizer.json'));
-  try
-    FTokenizer.LoadByteLevelJSON(ModelObject(Data, 'Qwen-VL tokenizer'));
-  finally
-    Data.Free;
-  end;
+  FTokenizer.LoadByteLevelFile(BundleMember(FFolder, 'tokenizer.json'));
   Data := ReadModelJSON(BundleMember(FFolder, 'config.json'));
   try
     Config := ModelObject(Data, 'Qwen-VL config');

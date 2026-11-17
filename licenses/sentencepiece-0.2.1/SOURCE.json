@@ -1,0 +1,40 @@
+{
+  "schema": "crosspascal.third-party-license-source.v1",
+  "component": "SentencePiece",
+  "version": "0.2.1",
+  "revision": "31646a467d2051eb904e0b45de3a73e91fe1c1e3",
+  "source_repository": "https://github.com/google/sentencepiece",
+  "files": [
+    {
+      "file": "LICENSE.txt",
+      "bytes": 11560,
+      "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5",
+      "source": "https://github.com/google/sentencepiece/blob/31646a467d2051eb904e0b45de3a73e91fe1c1e3/LICENSE"
+    },
+    {
+      "file": "absl-LICENSE.txt",
+      "bytes": 11568,
+      "sha256": "7871ddb0d7635157a82afc21720d795660a024c59652b7a5b1ed812355320fdc",
+      "source": "https://github.com/google/sentencepiece/blob/31646a467d2051eb904e0b45de3a73e91fe1c1e3/third_party/absl/LICENSE"
+    },
+    {
+      "file": "darts_clone-LICENSE.txt",
+      "bytes": 1491,
+      "sha256": "ed8437dc7358a40ef10afd3635ac1cd43c88fbaaaf6cd27c414f8ada5d68f447",
+      "source": "https://github.com/google/sentencepiece/blob/31646a467d2051eb904e0b45de3a73e91fe1c1e3/third_party/darts_clone/LICENSE"
+    },
+    {
+      "file": "esaxx-LICENSE.txt",
+      "bytes": 1136,
+      "sha256": "c32d2b3a60ed4b71616dd544f0865e171631ce26d3a3855c43428e61cbf89d67",
+      "source": "https://github.com/google/sentencepiece/blob/31646a467d2051eb904e0b45de3a73e91fe1c1e3/third_party/esaxx/LICENSE"
+    },
+    {
+      "file": "protobuf-lite-LICENSE.txt",
+      "bytes": 1764,
+      "sha256": "f4df8b2457697851385d9ebb93267832c1dfa24e0e61881952f6b0c452663dc9",
+      "source": "https://github.com/google/sentencepiece/blob/31646a467d2051eb904e0b45de3a73e91fe1c1e3/third_party/protobuf-lite/LICENSE"
+    }
+  ],
+  "scope": "Unmodified license bytes from the checked source revision, also matched to the supplied native runtime license pack. CrossPascal wrapper code retains the project MIT license."
+}

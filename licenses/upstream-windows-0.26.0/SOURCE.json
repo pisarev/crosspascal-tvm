@@ -1,0 +1,147 @@
+{
+  "schema": "crosspascal.upstream-windows-wheel-source.v1",
+  "platform": "windows-x86_64",
+  "binary_modifications": false,
+  "reproducible_rebuild_claim": false,
+  "scope": "Unmodified native library bytes and all license/notice members supplied by the pinned upstream wheels. Binary hashes establish wheel identity; they do not establish a reproducible source rebuild. Compiler files are optional and are distinct from the consumer runtime subset.",
+  "packages": [
+    {
+      "name": "apache-tvm",
+      "version": "0.26.0",
+      "source_repository": "https://github.com/apache/tvm",
+      "wheel": "apache_tvm-0.26.0-py3-none-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/a2/4f/ec2c06deac38d2a68a2be1474c13494d6fcbe5c48a09dcd8439300318ecb/apache_tvm-0.26.0-py3-none-win_amd64.whl",
+      "sha256": "3993a1122b922ed2186e946689d6940e4beb8b97ee5012bb118d3cfa472ee681",
+      "binaries": [
+        {
+          "member": "tvm/lib/tvm_compiler.dll",
+          "bytes": 169132544,
+          "sha256": "26d10e38175889caaa1b503781b46a4afe6fe1bfcb04443f438983d95357a6d1",
+          "file": "tvm_compiler.dll",
+          "role": "compiler"
+        },
+        {
+          "member": "tvm/lib/tvm_runtime.dll",
+          "bytes": 2112512,
+          "sha256": "45e3a9b5d76ea6950cde4442e5bd3208c66a8211d02936e2c0e727f52d2c4ac1",
+          "file": "tvm_runtime.dll",
+          "role": "runtime"
+        },
+        {
+          "member": "tvm/lib/tvm_runtime_cuda.dll",
+          "bytes": 365056,
+          "sha256": "4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b",
+          "file": "tvm_runtime_cuda.dll",
+          "role": "runtime"
+        },
+        {
+          "member": "tvm/lib/tvm_runtime_extra.dll",
+          "bytes": 828416,
+          "sha256": "4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee",
+          "file": "tvm_runtime_extra.dll",
+          "role": "runtime"
+        }
+      ],
+      "licenses": [
+        {
+          "member": "tvm/LICENSE",
+          "file": "tvm/LICENSE",
+          "bytes": 12308,
+          "sha256": "7cd3b9cb57596d291cc44488f7c55b5a91ea652dc2bb0ca6098d5508765c23e5"
+        },
+        {
+          "member": "tvm/NOTICE",
+          "file": "tvm/NOTICE",
+          "bytes": 169,
+          "sha256": "12f909aa8ba41e34538c42d511291bf47343281ef0310e331153e761623cc44e"
+        },
+        {
+          "member": "tvm/licenses/LICENSE.builtin_fp16.txt",
+          "file": "tvm/licenses/LICENSE.builtin_fp16.txt",
+          "bytes": 17019,
+          "sha256": "815455237d89628f7b995a9e11a6e9074f7443afdf63507d715a676f80d874a4"
+        },
+        {
+          "member": "tvm/licenses/LICENSE.cutlass.txt",
+          "file": "tvm/licenses/LICENSE.cutlass.txt",
+          "bytes": 1541,
+          "sha256": "665b7956363c9bfa894c7e16023e3bcebb88ae5b2f6a57df32ef5a256092820f"
+        },
+        {
+          "member": "tvm/licenses/LICENSE.cutlass_fpA_intB_gemm.txt",
+          "file": "tvm/licenses/LICENSE.cutlass_fpA_intB_gemm.txt",
+          "bytes": 11560,
+          "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+        },
+        {
+          "member": "tvm/licenses/LICENSE.libflash_attn.txt",
+          "file": "tvm/licenses/LICENSE.libflash_attn.txt",
+          "bytes": 1587,
+          "sha256": "c364d38c8ee8070159ad68f56a8bab4917b8d020548da33a01e036505c8e4add"
+        },
+        {
+          "member": "tvm/licenses/LICENSE.tensorrt_llm.txt",
+          "file": "tvm/licenses/LICENSE.tensorrt_llm.txt",
+          "bytes": 11560,
+          "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+        },
+        {
+          "member": "tvm/licenses/LICENSE.vllm.txt",
+          "file": "tvm/licenses/LICENSE.vllm.txt",
+          "bytes": 11558,
+          "sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6"
+        },
+        {
+          "member": "apache_tvm-0.26.0.dist-info/licenses/LICENSE",
+          "file": "tvm/LICENSE",
+          "bytes": 12308,
+          "sha256": "7cd3b9cb57596d291cc44488f7c55b5a91ea652dc2bb0ca6098d5508765c23e5"
+        }
+      ]
+    },
+    {
+      "name": "apache-tvm-ffi",
+      "version": "0.1.14",
+      "source_repository": "https://github.com/apache/tvm-ffi",
+      "wheel": "apache_tvm_ffi-0.1.14-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/f7/b3/da93f7a4bc35570a4eddec3a48603e995fba2f6b9c825c518c3b0a1d4545/apache_tvm_ffi-0.1.14-cp312-cp312-win_amd64.whl",
+      "sha256": "a6af0a29916494a33d40dc469951d9a631b2f5938003a1bfaabc2a7a33e6e3a2",
+      "binaries": [
+        {
+          "member": "tvm_ffi/lib/tvm_ffi.dll",
+          "bytes": 4082176,
+          "sha256": "2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913",
+          "file": "tvm_ffi.dll",
+          "role": "runtime"
+        },
+        {
+          "member": "tvm_ffi/lib/tvm_ffi.lib",
+          "bytes": 42456,
+          "sha256": "5bb27ac9be41e0191701f53b26a8c8c5c16a8fb0eefb5d526e52717f0cbc139d",
+          "file": "tvm_ffi.lib",
+          "role": "compiler"
+        }
+      ],
+      "licenses": [
+        {
+          "member": "tvm_ffi/3rdparty/libbacktrace/LICENSE",
+          "file": "tvm-ffi/licenses/libbacktrace-LICENSE",
+          "bytes": 1507,
+          "sha256": "0b0d1dae2c2c3875d5f70bf1a543aa2bcf93b0d812a03c605ca0a032846c604d"
+        },
+        {
+          "member": "apache_tvm_ffi-0.1.14.dist-info/licenses/LICENSE",
+          "file": "tvm-ffi/LICENSE",
+          "bytes": 12050,
+          "sha256": "ba75e3eb5689f23663bacffb0c646f46961c39850a3d4e2c6df535e99843c11e"
+        },
+        {
+          "member": "apache_tvm_ffi-0.1.14.dist-info/licenses/NOTICE",
+          "file": "tvm-ffi/NOTICE",
+          "bytes": 176,
+          "sha256": "010eea524d4764113d7407321481ebc2e9565c478dfb3e6167c4365598a07763"
+        }
+      ]
+    }
+  ]
+}
