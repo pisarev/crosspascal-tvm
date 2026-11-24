@@ -303,9 +303,9 @@ type
     class function GetOrCreateCpuTensor(const SrcTensor: PDLTensor; out CpuTensor: PDLTensor;
       const TensorName, ContextPrefix: string; const Error: PString = nil): PDLTensor; static;
     class procedure FreeTensors(var Tensors: TArray<PDLTensor>); static;
-    class function LoadModel(const ModelFileName: TTVMFileName; const ModelFormat: string; out Descriptor: TModelDescriptor;
-      const DeviceType: TDLDeviceType; const DeviceID: Integer = 0; const EntryName: string = 'main';
-      const Error: PString = nil): Boolean; static;
+    class function LoadModel(const ModelFileName: TTVMFileName; const ModelFormat: string;
+      out Descriptor: TModelDescriptor; const DeviceType: TDLDeviceType; const DeviceID: Integer = 0;
+      const EntryName: string = 'main'; const Error: PString = nil): Boolean; static;
     class procedure SetInputSpec(var Descriptor: TModelDescriptor; const Shape: array of Int64;
       const DTypeCode: TDLDataTypeCode = kDLFloat; const DTypeBits: Integer = 32;
       const DTypeLanes: Integer = 1); static;
@@ -414,10 +414,10 @@ begin
     end;
   end
   else if Exponent = 31 then
-      R.IntegerBits := (SignBit shl 31) or ($FF shl 23) or (Mantissa shl 13)
-    else
-      R.IntegerBits := (SignBit shl 31) or (LongWord(Exponent + (127 - 15)) shl 23) or (Mantissa shl
-        13);
+    R.IntegerBits := (SignBit shl 31) or ($FF shl 23) or (Mantissa shl 13)
+  else
+    R.IntegerBits := (SignBit shl 31) or (LongWord(Exponent + (127 - 15)) shl 23) or (Mantissa shl
+      13);
   Result := R.FloatValue;
 end;
 
@@ -1435,32 +1435,32 @@ begin
     Size3.C := Tensor.shape[ImageTensor.CIndex];
   end
   else if Tensor.ndim = 3 then
-      if (Tensor.shape[0] < Tensor.shape[1]) and (Tensor.shape[0] < Tensor.shape[2]) then
-      begin
-        CHWLayout := True;
-        Size3.C := Tensor.shape[0];
-        Size3.H := Tensor.shape[1];
-        Size3.W := Tensor.shape[2];
-      end
-      else if (Tensor.shape[2] < Tensor.shape[0]) and (Tensor.shape[2] < Tensor.shape[1]) then
-        begin
-          CHWLayout := False;
-          Size3.H := Tensor.shape[0];
-          Size3.W := Tensor.shape[1];
-          Size3.C := Tensor.shape[2];
-        end
-        else begin
-          if Assigned(Error) then
-            Error^ := Format('TTVMRuntime.CreateImageArrayFromTensor: Cannot determine CHW/HWC layout for 3D tensor. Shape: %s',
-              [ShapeToString(GetTensorShape(Tensor))]);
-          Exit(False);
-        end
+    if (Tensor.shape[0] < Tensor.shape[1]) and (Tensor.shape[0] < Tensor.shape[2]) then
+    begin
+      CHWLayout := True;
+      Size3.C := Tensor.shape[0];
+      Size3.H := Tensor.shape[1];
+      Size3.W := Tensor.shape[2];
+    end
+    else if (Tensor.shape[2] < Tensor.shape[0]) and (Tensor.shape[2] < Tensor.shape[1]) then
+    begin
+      CHWLayout := False;
+      Size3.H := Tensor.shape[0];
+      Size3.W := Tensor.shape[1];
+      Size3.C := Tensor.shape[2];
+    end
     else begin
       if Assigned(Error) then
-        Error^ := Format('TTVMRuntime.CreateImageArrayFromTensor: Unsupported tensor dimension count: %d. Expected 3 or 4. Shape: %s',
-          [Tensor.ndim, ShapeToString(GetTensorShape(Tensor))]);
+        Error^ := Format('TTVMRuntime.CreateImageArrayFromTensor: Cannot determine CHW/HWC layout for 3D tensor. Shape: %s',
+          [ShapeToString(GetTensorShape(Tensor))]);
       Exit(False);
-    end;
+    end
+  else begin
+    if Assigned(Error) then
+      Error^ := Format('TTVMRuntime.CreateImageArrayFromTensor: Unsupported tensor dimension count: %d. Expected 3 or 4. Shape: %s',
+        [Tensor.ndim, ShapeToString(GetTensorShape(Tensor))]);
+    Exit(False);
+  end;
   if (Size3.W < 1) or (Size3.H < 1) or (Size3.C < 1) then
   begin
     if Assigned(Error) then
@@ -2065,7 +2065,8 @@ begin
         AnyInt(kTVMVMAllocNaive), AnyInt(Ord(kDLCPU)), AnyInt(0), AnyInt(kTVMVMAllocPooled)],
         InitRes, Error) then Exit(False);
     end
-    else if not CallFunc(Descriptor.InitFunc,
+    else
+      if not CallFunc(Descriptor.InitFunc,
       [AnyInt(Ord(DeviceType)), AnyInt(DeviceID), AnyInt(kTVMVMAllocPooled)], InitRes, Error) then
           Exit(False);
     Result := True;
@@ -2140,61 +2141,61 @@ begin
       end;
     end
     else if (T.dtype.code = Ord(kDLFloat)) and (T.dtype.bits = 64) then
+    begin
+      P64 := PUInt64(PByte(T.data) + T.byte_offset);
+      while K < Count do
       begin
-        P64 := PUInt64(PByte(T.data) + T.byte_offset);
-        while K < Count do
+        Bits64 := P64[K];
+        if (Bits64 and UInt64($7FF0000000000000)) = UInt64($7FF0000000000000) then
         begin
-          Bits64 := P64[K];
-          if (Bits64 and UInt64($7FF0000000000000)) = UInt64($7FF0000000000000) then
-          begin
-            Bad := True;
-            if (Bits64 and UInt64($000FFFFFFFFFFFFF)) <> 0 then
-              Kind := 'NaN'
-            else
-              Kind := 'infinity';
-            Break;
-          end;
-          Inc(K);
-        end;
-      end
-      else if (T.dtype.code = Ord(kDLFloat)) and (T.dtype.bits = 16) then
-        begin
-          P16 := PWord(PByte(T.data) + T.byte_offset);
-          while K < Count do
-          begin
-            Bits16 := P16[K];
-            if (Bits16 and $7C00) = $7C00 then
-            begin
-              Bad := True;
-              if (Bits16 and $03FF) <> 0 then
-                Kind := 'NaN'
-              else
-                Kind := 'infinity';
-              Break;
-            end;
-            Inc(K);
-          end;
-        end
-        else if (T.dtype.code = Ord(kDLBfloat)) and (T.dtype.bits = 16) then
-          begin
-            P16 := PWord(PByte(T.data) + T.byte_offset);
-            while K < Count do
-            begin
-              Bits16 := P16[K];
-              if (Bits16 and $7F80) = $7F80 then
-              begin
-                Bad := True;
-                if (Bits16 and $007F) <> 0 then
-                  Kind := 'NaN'
-                else
-                  Kind := 'infinity';
-                Break;
-              end;
-              Inc(K);
-            end;
-          end
+          Bad := True;
+          if (Bits64 and UInt64($000FFFFFFFFFFFFF)) <> 0 then
+            Kind := 'NaN'
           else
-            Continue;
+            Kind := 'infinity';
+          Break;
+        end;
+        Inc(K);
+      end;
+    end
+    else if (T.dtype.code = Ord(kDLFloat)) and (T.dtype.bits = 16) then
+    begin
+      P16 := PWord(PByte(T.data) + T.byte_offset);
+      while K < Count do
+      begin
+        Bits16 := P16[K];
+        if (Bits16 and $7C00) = $7C00 then
+        begin
+          Bad := True;
+          if (Bits16 and $03FF) <> 0 then
+            Kind := 'NaN'
+          else
+            Kind := 'infinity';
+          Break;
+        end;
+        Inc(K);
+      end;
+    end
+    else if (T.dtype.code = Ord(kDLBfloat)) and (T.dtype.bits = 16) then
+    begin
+      P16 := PWord(PByte(T.data) + T.byte_offset);
+      while K < Count do
+      begin
+        Bits16 := P16[K];
+        if (Bits16 and $7F80) = $7F80 then
+        begin
+          Bad := True;
+          if (Bits16 and $007F) <> 0 then
+            Kind := 'NaN'
+          else
+            Kind := 'infinity';
+          Break;
+        end;
+        Inc(K);
+      end;
+    end
+    else
+      Continue;
     Examined := Examined + K;
     if Bad then
     begin
@@ -2505,7 +2506,7 @@ begin
         if not CallFunc(Descriptor.GetOutputFunc, [EntryAny], Res, Error) then Exit;
       end
       else if not CallFunc(Descriptor.GetOutputFunc, [EntryAny, AnyInt(I)], Res, Error) then
-          Exit;
+        Exit;
       if (Res.TypeIndex <> kTVMFFITensor) or not Assigned(Res.VObj) then
       begin
         if (Res.TypeIndex >= kTVMFFIStaticObjectBegin) and Assigned(Res.VObj) then
