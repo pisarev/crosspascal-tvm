@@ -15,7 +15,7 @@ interface
 
 uses
   {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
-  TVM, DLPack, CrossPascal.Json;
+  TVM, DLPack, CrossPascal.Json, TVM.GraphLibrary;
 
 type
   ECpuGraph = class(Exception);
@@ -25,10 +25,18 @@ type
   TTensorHandles = TArray<TTVMFFIObjectHandle>;
   TCpuGraphStop = function: Boolean of object;
 
+  { Read-only disk stream: UTF-16 on Windows and UTF-8 on Unix. }
+  TModelReadStream = class(THandleStream)
+  public
+    constructor Create(const FileName: string);
+    destructor Destroy; override;
+  end;
+
   TMappedModelFile = class
   private
     FAddress: Pointer;
     FSize: Int64;
+    FFile: THandleStream;
   public
     constructor Create(const FileName: string);
     destructor Destroy; override;
@@ -39,6 +47,7 @@ type
   TCpuGraph = class
   private
     FModule: TTVMFFIObjectHandle;
+    FLibrary: TGraphLibraryLease;
     FVM: TTVMFFIObjectHandle;
     FMain: TTVMFFIObjectHandle;
     FShouldStop: TCpuGraphStop;
@@ -74,8 +83,54 @@ procedure ReleaseTensors(var Tensors: TTensorHandles);
 implementation
 
 uses
-  {$IFDEF FPC}Windows, Math{$ELSE}Winapi.Windows, System.Math{$ENDIF},
+  {$IFDEF FPC}
+  {$IFDEF UNIX}BaseUnix, Unix,{$ELSE}Windows,{$ENDIF}Math,
+  {$ELSE}Winapi.Windows, System.Math, {$ENDIF}
   CrossPascal.SHA256;
+
+{$IFDEF UNIX}
+const
+  DescriptorCloseOnExec = 1;
+{$ENDIF}
+
+constructor TModelReadStream.Create(const FileName: string);
+var
+  H: THandle;
+  {$IFDEF UNIX}
+  Info: Stat;
+  {$ELSE}
+  ErrorCode: DWORD;
+  {$ENDIF}
+begin
+  RequireCpu((FileName <> '') and (Pos(#0, FileName) = 0), 'Invalid model file name');
+  {$IFDEF UNIX}
+  H := fpOpen(PAnsiChar(UTF8Encode(FileName)), O_RDONLY);
+  inherited Create(H);
+  if H < 0 then RaiseLastOSError;
+  if fpFcntl(H, F_SETFD, DescriptorCloseOnExec) < 0 then RaiseLastOSError;
+  if fpFStat(H, Info) <> 0 then RaiseLastOSError;
+  RequireCpu(FPS_ISREG(Info.st_mode), 'Model input must be a disk file: ' + FileName);
+  {$ELSE}
+  H := CreateFileW(PWideChar(FileName), GENERIC_READ, FILE_SHARE_READ, nil,
+    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+  ErrorCode := GetLastError;
+  inherited Create(H);
+  if H = INVALID_HANDLE_VALUE then
+    raise EFOpenError.CreateFmt('Cannot open model file "%s": %s',
+      [FileName, SysErrorMessage(ErrorCode)]);
+  RequireCpu(GetFileType(H) = FILE_TYPE_DISK, 'Model input must be a disk file: ' + FileName);
+  {$ENDIF}
+end;
+
+destructor TModelReadStream.Destroy;
+begin
+  {$IFDEF UNIX}
+  if Handle >= 0 then fpClose(Handle);
+  {$ELSE}
+  if (Handle <> 0) and (Handle <> INVALID_HANDLE_VALUE) then CloseHandle(Handle);
+  {$ENDIF}
+  inherited;
+end;
 
 procedure RequireCpu(const Condition: Boolean; const MessageText: string);
 begin
@@ -102,15 +157,16 @@ end;
 function ReadModelJSON(const FileName: string): TJSONValue;
 var
   Bytes: UTF8String;
-  Stream: TFileStream;
+  Stream: THandleStream;
 begin
-  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  Stream := TModelReadStream.Create(FileName);
   try
     RequireCpu((Stream.Size > 0) and (Stream.Size <= 64 * 1024 * 1024),
       'Invalid metadata file size: ' + FileName);
     SetLength(Bytes, Stream.Size);
     Stream.ReadBuffer(Bytes[1], Length(Bytes));
-    if Copy(Bytes, 1, 3) = #$EF#$BB#$BF then Delete(Bytes, 1, 3);
+    if (Length(Bytes) >= 3) and (Byte(Bytes[1]) = $EF) and (Byte(Bytes[2]) = $BB) and
+      (Byte(Bytes[3]) = $BF) then Delete(Bytes, 1, 3);
     Result := ParseCrossJSON(UTF8Decode(Bytes));
     RequireCpu(Result <> nil, 'Invalid model metadata: ' + FileName);
   finally
@@ -178,12 +234,12 @@ procedure VerifyArtifacts(const Folder: string; const Hashes: TJSONObject);
 var
   I: Integer;
   Name, Digest: string;
-  Stream: TFileStream;
+  Stream: THandleStream;
 begin
   for I := 0 to Hashes.Count - 1 do
   begin
     Name := JSONObjectName(Hashes, I);
-    Stream := TFileStream.Create(BundleMember(Folder, Name), fmOpenRead or fmShareDenyWrite);
+    Stream := TModelReadStream.Create(BundleMember(Folder, Name));
     try
       Digest := SHA256Stream(Stream);
       RequireCpu(SameText(Digest, JSONValueText(JSONObjectValue(Hashes, I))),
@@ -195,31 +251,43 @@ begin
 end;
 
 constructor TMappedModelFile.Create(const FileName: string);
+{$IFNDEF UNIX}
 var
-  Stream: TFileStream;
   Mapping: THandle;
+{$ENDIF}
 begin
   inherited Create;
-  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
-  try
-    FSize := Stream.Size;
-    RequireCpu(FSize > 0, 'Model file is empty: ' + FileName);
-    Mapping := CreateFileMapping(Stream.Handle, nil, PAGE_READONLY, 0, 0, nil);
-    if Mapping = 0 then RaiseLastOSError;
-    try
-      FAddress := MapViewOfFile(Mapping, FILE_MAP_READ, 0, 0, 0);
-      if FAddress = nil then RaiseLastOSError;
-    finally
-      CloseHandle(Mapping);
-    end;
-  finally
-    Stream.Free;
+  FFile := TModelReadStream.Create(FileName);
+  FSize := FFile.Size;
+  RequireCpu(FSize > 0, 'Model file is empty: ' + FileName);
+  {$IFDEF UNIX}
+  RequireCpu(UInt64(FSize) <= UInt64(High(NativeInt)), 'Model mapping exceeds address space');
+  FAddress := fpMMap(nil, FSize, PROT_READ, MAP_SHARED, FFile.Handle, 0);
+  if FAddress = MAP_FAILED then
+  begin
+    FAddress := nil;
+    RaiseLastOSError;
   end;
+  {$ELSE}
+  Mapping := CreateFileMappingW(FFile.Handle, nil, PAGE_READONLY, 0, 0, nil);
+  if Mapping = 0 then RaiseLastOSError;
+  try
+    FAddress := MapViewOfFile(Mapping, FILE_MAP_READ, 0, 0, 0);
+    if FAddress = nil then RaiseLastOSError;
+  finally
+    CloseHandle(Mapping);
+  end;
+  {$ENDIF}
 end;
 
 destructor TMappedModelFile.Destroy;
 begin
+  {$IFDEF UNIX}
+  if FAddress <> nil then fpMUnMap(FAddress, FSize);
+  {$ELSE}
   if FAddress <> nil then UnmapViewOfFile(FAddress);
+  {$ENDIF}
+  FFile.Free;
   inherited;
 end;
 
@@ -237,7 +305,12 @@ var
   Error: TTVMCallError;
 begin
   inherited Create;
-  RequireTVM(TTVMRuntime.ModuleLoadFromFile(LibraryName, 'dll', FModule, @Error), @Error);
+  try
+    FLibrary := AcquireGraphLibrary(LibraryName);
+  except
+    on E: EGraphLibrary do raise ECpuGraph.Create(E.Message);
+  end;
+  FModule := FLibrary.Module;
   RequireTVM(TTVMRuntime.ModuleGetFunction(FModule, 'vm_load_executable', True, Func, @Error), @Error);
   try
     RequireTVM(TTVMRuntime.CallFunc(Func, [], Value, @Error), @Error);
@@ -266,7 +339,8 @@ destructor TCpuGraph.Destroy;
 begin
   TTVMRuntime.ObjectRelease(FMain);
   TTVMRuntime.ObjectRelease(FVM);
-  TTVMRuntime.ObjectRelease(FModule);
+  FModule := nil;
+  ReleaseGraphLibrary(FLibrary);
   inherited;
 end;
 

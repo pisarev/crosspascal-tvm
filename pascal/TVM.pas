@@ -99,6 +99,9 @@ type
 
   TTVMFFIObjectHandle = Pointer;
 
+  { UTF-16 on Windows; native file name bytes on Unix. }
+  TTVMFileName = {$IFDEF UNIX}RawByteString{$ELSE}UnicodeString{$ENDIF};
+
   TTVMModuleHandle = TTVMFFIObjectHandle;
   TTVMFunctionHandle = TTVMFFIObjectHandle;
   TTVMObjectHandle = TTVMFFIObjectHandle;
@@ -264,7 +267,7 @@ type
     class procedure ObjectRetain(const Obj: TTVMFFIObjectHandle); static;
     class procedure ObjectRelease(var Obj: TTVMFFIObjectHandle); static;
     class function TensorDLTensor(const TensorObj: TTVMFFIObjectHandle): PDLTensor; static;
-    class function ModuleLoadFromFile(const FileName, ModuleFormat: string;
+    class function ModuleLoadFromFile(const FileName: TTVMFileName; const ModuleFormat: string;
       out ModuleHandle: TTVMFFIObjectHandle; const Error: PString = nil): Boolean; static;
     class function ExecutableLoadFromFile(const FileName: string; out ExecutableHandle: TTVMFFIObjectHandle;
       const Error: PString = nil): Boolean; static;
@@ -300,7 +303,7 @@ type
     class function GetOrCreateCpuTensor(const SrcTensor: PDLTensor; out CpuTensor: PDLTensor;
       const TensorName, ContextPrefix: string; const Error: PString = nil): PDLTensor; static;
     class procedure FreeTensors(var Tensors: TArray<PDLTensor>); static;
-    class function LoadModel(const ModelFileName, ModelFormat: string; out Descriptor: TModelDescriptor;
+    class function LoadModel(const ModelFileName: TTVMFileName; const ModelFormat: string; out Descriptor: TModelDescriptor;
       const DeviceType: TDLDeviceType; const DeviceID: Integer = 0; const EntryName: string = 'main';
       const Error: PString = nil): Boolean; static;
     class procedure SetInputSpec(var Descriptor: TModelDescriptor; const Shape: array of Int64;
@@ -822,10 +825,10 @@ begin
   Result := True;
 end;
 
-class function TTVMRuntime.ModuleLoadFromFile(const FileName, ModuleFormat: string;
+class function TTVMRuntime.ModuleLoadFromFile(const FileName: TTVMFileName; const ModuleFormat: string;
   out ModuleHandle: TTVMFFIObjectHandle; const Error: PString): Boolean;
 var
-  AnsiPath: AnsiString;
+  PathBytes: RawByteString;
   Res: TTVMFFIAny;
 begin
   ModuleHandle := nil;
@@ -835,9 +838,9 @@ begin
       Error^ := 'TTVMRuntime.ModuleLoadFromFile: global ffi.ModuleLoadFromFile not resolved';
     Exit(False);
   end;
-  AnsiPath := AnsiString(FileName);
+  PathBytes := {$IFDEF UNIX}FileName{$ELSE}UTF8Encode(FileName){$ENDIF};
   if not CallFunc(TModule.GModuleLoadFromFile,
-       [AnyCStr(PAnsiChar(AnsiPath))], Res, Error) then Exit(False);
+       [AnyCStr(PAnsiChar(PathBytes))], Res, Error) then Exit(False);
   if Res.TypeIndex <> kTVMFFIModule then
   begin
     if Assigned(Error) then
@@ -1790,9 +1793,34 @@ begin
   Descriptor.InputSpec := NewCpuTensor(Shape, Ord(DTypeCode), DTypeBits, DTypeLanes);
 end;
 
-function ReadInputNamesBeside(const ModelFileName: string): TArray<string>;
+procedure LoadInputSidecar(const Lines: TStringList; const FileName: TTVMFileName);
+{$IF Defined(FPC) AND Defined(MSWINDOWS)}
 var
-  SidecarPath: string;
+  FileHandle: THandle;
+  Stream: THandleStream;
+begin
+  FileHandle := FileOpen(FileName, fmOpenRead or fmShareDenyWrite);
+  if FileHandle = INVALID_HANDLE_VALUE then RaiseLastOSError;
+  try
+    Stream := THandleStream.Create(FileHandle);
+    try
+      Lines.LoadFromStream(Stream, TEncoding.UTF8);
+    finally
+      Stream.Free;
+    end;
+  finally
+    FileClose(FileHandle);
+  end;
+end;
+{$ELSE}
+begin
+  Lines.LoadFromFile(FileName, TEncoding.UTF8);
+end;
+{$ENDIF}
+
+function ReadInputNamesBeside(const ModelFileName: TTVMFileName): TArray<string>;
+var
+  SidecarPath: TTVMFileName;
   Lines: TStringList;
   I, P1, P2: Integer;
   S, InputName: string;
@@ -1804,7 +1832,7 @@ begin
   Lines := TStringList.Create;
   try
     try
-      Lines.LoadFromFile(SidecarPath, TEncoding.UTF8);
+      LoadInputSidecar(Lines, SidecarPath);
     except
       Exit;
     end;
@@ -1830,7 +1858,7 @@ begin
   end;
 end;
 
-function ReadInputShapesBeside(const ModelFileName: string;
+function ReadInputShapesBeside(const ModelFileName: TTVMFileName;
   const ExpectedNames: TArray<string>): TArray<TArray<Int64>>;
 var
   Lines, Dimensions: TStringList;
@@ -1845,7 +1873,7 @@ begin
   Dimensions := TStringList.Create;
   try
     try
-      Lines.LoadFromFile(ModelFileName + '.inputs', TEncoding.UTF8);
+      LoadInputSidecar(Lines, ModelFileName + '.inputs');
       if Lines.Count <> Length(ExpectedNames) then Exit;
       Dimensions.Delimiter := ',';
       Dimensions.StrictDelimiter := True;
@@ -1977,7 +2005,7 @@ begin
   Result := (Tensor.ndim = 4) and (Tensor.shape[ImageTensor.CIndex] in [1, 3, 4]);
 end;
 
-class function TTVMRuntime.LoadModel(const ModelFileName, ModelFormat: string;
+class function TTVMRuntime.LoadModel(const ModelFileName: TTVMFileName; const ModelFormat: string;
   out Descriptor: TModelDescriptor; const DeviceType: TDLDeviceType; const DeviceID: Integer;
   const EntryName: string; const Error: PString): Boolean;
 var

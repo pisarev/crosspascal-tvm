@@ -1,0 +1,26 @@
+{
+  "schema": "crosspascal-tvm-ffi-utf8-source-v1",
+  "archives": [
+    {
+      "file": "tvm-ffi.tar.gz",
+      "destination": "",
+      "revision": "70e5af34b162096340695c583b11c197f3a89595",
+      "url": "https://github.com/apache/tvm-ffi/archive/70e5af34b162096340695c583b11c197f3a89595.tar.gz",
+      "sha256": "74917258d014f3480d8a8ff03066a16d5e1d048dba39afe222739df2a113b8ab"
+    },
+    {
+      "file": "dlpack.tar.gz",
+      "destination": "3rdparty/dlpack",
+      "revision": "84d107bf416c6bab9ae68ad285876600d230490d",
+      "url": "https://github.com/dmlc/dlpack/archive/84d107bf416c6bab9ae68ad285876600d230490d.tar.gz",
+      "sha256": "9978ddb7f533fcee7e0c0ab81a978257d3f8dc475eb83319a5e632738cafb271"
+    }
+  ],
+  "patch": {
+    "file": "ffi-utf8-path.patch",
+    "sha256": "a880bffe4adff43ac15041110ded3811cf2fb8ae48314882c85cb053c6e094ec"
+  },
+  "unmodified_source_sha256": "34c51130a3d1c76356b1a5bcf9e89ba57566a04a477ad27f2abffec141d1f01f",
+  "modified_source_sha256": "8909e3e52eeffd20e803122ad4ce0cecac9e5278b400e180ad42ad3fced2de77",
+  "scope": "UTF8-to-UTF16 Windows DSO path decoding only; no tensor/graph math change; new runtime binary requires affected native acceptance before publication"
+}

@@ -2,7 +2,7 @@
 
 The supplied `tvm_runtime.dll` adds explicit shutdown of the current host thread's native pool. This prevents a Windows loader-lock deadlock when a Pascal worker exits after CPU inference. It also corrects parallel-task error publication, the caller's task ID, and the serial callback return code. The patch modifies only `src/runtime/thread_pool.cc` from the revision in [SOURCES.json](SOURCES.json). These CrossPascal modifications were made on 14 November 2026; the modified TVM source retains the upstream Apache 2.0 license.
 
-The supplied core is 2,345,984 bytes, SHA-256 `e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584`. Keep the official FFI 0.1.14, extra-runtime and CUDA-runtime DLLs specified in [runtime provenance](../../runtime/RUNTIME-PROVENANCE-windows-x64-cuda.json). The FFI built as part of this recipe supplies an import library; its newly built DLL does not replace the official FFI in the SDK.
+The supplied core is 2,345,984 bytes, SHA-256 `e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584`. Keep the exact FFI0.1.14, extra-runtime and CUDA-runtime DLLs specified in [runtime provenance](../../runtime/RUNTIME-PROVENANCE-windows-x64-cuda.json). EA024 supplies the separately built FFI with the Windows UTF-8 filename fix; its pinned source and patch are in [FFI-SOURCES.json](FFI-SOURCES.json), with the build recipe in `build_ffi.py`. The core-only `build.py` recipe below produces the core and its import library; it does not build that separately patched FFI delivery.
 
 ## Build
 

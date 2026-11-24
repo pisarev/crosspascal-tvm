@@ -1,0 +1,5 @@
+CrossPascal FFI loader modification,21November2026. Copyright Yuriy Pisarev.
+The pinned upstream Apache2.0 FFI source retains its original license/notices.
+Only UTF8-to-UTF16 Windows DSO filename decoding changed; no graph/tensor math change.
+Exact source,patch and build recipe: crosspascal-tvm/native/windows-runtime.
+Binary2469376bytes SHA256 d6f61004f96c06bbc23146a6143ddae0a6ab95831a03539f38f732a0c0f972be.

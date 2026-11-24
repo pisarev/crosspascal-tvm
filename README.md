@@ -47,6 +47,8 @@ After the last inference, call `TBiRefNetModel.Close` before reporting success, 
 
 For text-guided object detection, open `crosspascal/examples/omdet-turbo/OmDetTurbo.dproj` or `OmDetTurbo.lpi`. The [OmDet-Turbo example](https://github.com/pisarev/crosspascal/tree/main/examples/omdet-turbo) uses `TOmDetModel` to run the CLIP text encoder and Swin-Tiny detector on CPU or CUDA. It accepts up to 16 class names and a task instruction, then saves boxes, scores, and an annotated image. Bundle loading checks all five artifacts and their hashes.
 
+For YOLO, open `crosspascal/examples/yolo-models/YoloModels.dproj` or `YoloModels.lpi`. The [YoloModels example](https://github.com/pisarev/crosspascal/tree/main/examples/yolo-models) runs 23 profiles across seven tasks on CPU or CUDA. `LoadYoloBundle` in `CrossVision.ML.YoloBundle` takes the expected profile and manifest pin; the application then opens the matching typed interface. `TYoloRunOptions` in `TVM.Yolo.RunOptions` sets box thresholds and a stop callback. See the [bundle and API notes](https://github.com/pisarev/crosspascal-convert/blob/main/docs/YOLO-NATIVE.md).
+
 ## Model and runtime checks
 
 `QwenCuda.pas` validates the declared profile and immutable model revision, all 170 parameter entries, parameter length and SHA-256, model DLL SHA-256, the exact tokenizer files and the four runtime DLLs. It holds input files open against writes during generation. It checks GPU 0 and compute capability before model loading, then checks CUDA tensor shapes and finite logits. The memory guard checks a minimum reserve; allocation can still fail if other applications consume memory.

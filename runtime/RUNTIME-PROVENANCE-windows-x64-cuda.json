@@ -5,14 +5,14 @@
   "tvm_revision_label": "bb9bc20a8294fb19a2a40f029fe57baa546a8206",
   "ffi_version": "0.1.14",
   "ffi_c_abi_version": "0.1.14",
-  "ffi_version_note": "Official PyPI wheel. The exact Windows DLL returned 0.1.14 from TVMFFIGetVersion.",
+  "ffi_version_note": "Pinned TVM FFI0.1.14 source with the CrossPascal Windows UTF-8-to-UTF-16 DSO path patch. Exact source/patch/build recipe in native/windows-runtime/FFI-SOURCES.json.",
   "ffi_revision_label": "70e5af34b162096340695c583b11c197f3a89595",
-  "ffi_modified": false,
+  "ffi_modified": true,
   "files": [
     {
       "name": "tvm_ffi.dll",
-      "bytes": 4082176,
-      "sha256": "2ed31dce9e331d23d6b4a2fa37e4166aa7843c334a3c17381f92dd3bcf122913"
+      "bytes": 2469376,
+      "sha256": "d6f61004f96c06bbc23146a6143ddae0a6ab95831a03539f38f732a0c0f972be"
     },
     {
       "name": "tvm_runtime.dll",
@@ -57,8 +57,11 @@
     "modified_file": "src/runtime/thread_pool.cc",
     "patch_sha256": "15d036c8fb4b7edf72db1cc40fcebad8f9021b3a132ac94644a8beae56cebec6",
     "ffi_import_library_built_from_pinned_source": true,
-    "official_ffi_dll_preserved": true
+    "official_ffi_dll_preserved": false,
+    "ffi_delivery_note": "The core build is unchanged. The separately built patched FFI DLL is supplied by EA024; the previous official FFI remains preserved in immutable EA023 assets."
   },
   "thread_shutdown": "runtime.ShutdownThreadPool on the quiescent owning host thread before its exit; never from pool callbacks or DLL detach",
-  "python_compiler_binaries": "Unmodified upstream wheel files; separate from the patched native SDK core"
+  "python_compiler_binaries": "Unmodified upstream wheel files; separate from the patched native SDK core",
+  "ffi_source_manifest": "native/windows-runtime/FFI-SOURCES.json",
+  "ffi_notice": "NOTICE-CrossPascal-FFI-UTF8.txt"
 }

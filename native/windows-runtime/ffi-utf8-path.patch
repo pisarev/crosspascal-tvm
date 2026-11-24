@@ -1,0 +1,31 @@
+--- a/src/ffi/extra/library_module_dynamic_lib.cc
++++ b/src/ffi/extra/library_module_dynamic_lib.cc
+@@ -29,6 +29,8 @@
+ 
+ #if defined(_WIN32)
+ #include <windows.h>
++#include <climits>
++#include <cstring>
+ #else
+ #include <dlfcn.h>
+ #endif
+@@ -73,8 +75,17 @@
+ }
+ 
+ void DSOLibrary::Load(const String& name) {
+-  // use wstring version that is needed by LLVM.
+-  std::wstring wname(name.data(), name.data() + name.size());
++  // TVM FFI strings carry UTF-8; byte-wise widening corrupts non-ASCII paths.
++  TVM_FFI_ICHECK(name.size() > 0 && name.size() <= static_cast<size_t>(INT_MAX) &&
++                 std::memchr(name.data(), 0, name.size()) == nullptr)
++      << "Invalid dynamic shared library path";
++  int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name.data(),
++                                   static_cast<int>(name.size()), nullptr, 0);
++  TVM_FFI_ICHECK(length > 0) << "Dynamic shared library path is not valid UTF-8";
++  std::wstring wname(static_cast<size_t>(length), L'\0');
++  TVM_FFI_ICHECK(MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name.data(),
++                                   static_cast<int>(name.size()), wname.data(), length) == length)
++      << "Cannot decode dynamic shared library path";
+   lib_handle_ = LoadLibraryW(wname.c_str());
+   TVM_FFI_ICHECK(lib_handle_ != nullptr) << "Failed to load dynamic shared library " << name;
+ }
