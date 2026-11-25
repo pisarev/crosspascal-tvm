@@ -1,6 +1,6 @@
 {
   "schema": "crosspascal-windows-source-index-v1",
-  "release_id": "early-access-024",
+  "release_id": "early-access-024-r1",
   "repository": "crosspascal-tvm",
   "local_metadata": [
     {
@@ -81,21 +81,6 @@
       "sha256": "4ee55141de81b7fe73ae3ab583c4a46aa423a11766a834ce97150645c5c87dd1"
     },
     {
-      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/LICENSE",
-      "bytes": 12050,
-      "sha256": "ba75e3eb5689f23663bacffb0c646f46961c39850a3d4e2c6df535e99843c11e"
-    },
-    {
-      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/licenses/libbacktrace-LICENSE",
-      "bytes": 1507,
-      "sha256": "0b0d1dae2c2c3875d5f70bf1a543aa2bcf93b0d812a03c605ca0a032846c604d"
-    },
-    {
-      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/NOTICE",
-      "bytes": 176,
-      "sha256": "010eea524d4764113d7407321481ebc2e9565c478dfb3e6167c4365598a07763"
-    },
-    {
       "path": "licenses/upstream-windows-0.26.0/tvm/LICENSE",
       "bytes": 12308,
       "sha256": "7cd3b9cb57596d291cc44488f7c55b5a91ea652dc2bb0ca6098d5508765c23e5"
@@ -134,6 +119,21 @@
       "path": "licenses/upstream-windows-0.26.0/tvm/NOTICE",
       "bytes": 169,
       "sha256": "12f909aa8ba41e34538c42d511291bf47343281ef0310e331153e761623cc44e"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/LICENSE",
+      "bytes": 12050,
+      "sha256": "ba75e3eb5689f23663bacffb0c646f46961c39850a3d4e2c6df535e99843c11e"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/licenses/libbacktrace-LICENSE",
+      "bytes": 1507,
+      "sha256": "0b0d1dae2c2c3875d5f70bf1a543aa2bcf93b0d812a03c605ca0a032846c604d"
+    },
+    {
+      "path": "licenses/upstream-windows-0.26.0/tvm-ffi/NOTICE",
+      "bytes": 176,
+      "sha256": "010eea524d4764113d7407321481ebc2e9565c478dfb3e6167c4365598a07763"
     },
     {
       "path": "native/paddle-clipper/build.cmd",
@@ -646,6 +646,6 @@
       "sha256": "8d8a12595cfe5bdf87618beb51812b56a836bdf06f1eefc06e85e7e32a8b0193"
     }
   ],
-  "source_revision": "early-access-024",
-  "documentation_revision": "ea024-20261125"
+  "source_revision": "early-access-024-r1",
+  "documentation_revision": "ea024-r1-20261125"
 }
