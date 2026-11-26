@@ -18,10 +18,10 @@ interface
 
 uses
   {$IFDEF FPC}
-  {$IFDEF MSWINDOWS}Windows,{$ENDIF}Classes, Math, SysUtils, Types,
-  Generics.Collections, Generics.Defaults, DLPack, OpenCV, OpenCV.Core, OpenCV.ImgProc,
-  OpenCV.ImgCodecs, OpenCV.ObjDetect, OpenCV.Custom, OpenCVTypes, OpenCVConsts,
-  CrossVision.Float16, CrossVision.Mat, TVM;
+  {$IFDEF MSWINDOWS}Windows,{$ENDIF}Classes, Math, SysUtils, Types, Generics.Collections,
+  Generics.Defaults, DLPack, OpenCV, OpenCV.Core, OpenCV.ImgProc, OpenCV.ImgCodecs,
+  OpenCV.ObjDetect, OpenCV.Custom, OpenCVTypes, OpenCVConsts, CrossVision.Float16,
+  CrossVision.Mat, TVM;
   {$ELSE}
   WinApi.Windows, System.SysUtils, System.Classes, System.Math, System.Types, System.Generics.Collections,
   System.Generics.Defaults, DLPack, OpenCV, OpenCV.Core, OpenCV.ImgProc, OpenCV.ImgCodecs,

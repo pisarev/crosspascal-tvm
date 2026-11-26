@@ -54,8 +54,7 @@ implementation
 
 uses
   {$IFDEF FPC}Classes, Character, Generics.Collections{$ELSE}System.Classes, System.Character, System.Generics.Collections{$ENDIF},
-  CrossPascal.Json
-  {$IFDEF MSWINDOWS}, {$IFDEF FPC}Windows{$ELSE}Winapi.Windows{$ENDIF}{$ENDIF};
+  CrossPascal.Json {$IFDEF MSWINDOWS}, {$IFDEF FPC}Windows{$ELSE}Winapi.Windows{$ENDIF}{$ENDIF};
 
 const
   ClipMergeCount = 48894;
@@ -107,21 +106,21 @@ begin
       PreviousSpace := True;
     end
     else if Normalized[At] = WideChar($0130) then
+    begin
+      Inc(Count);
+      Result[Count] := 'i';
+      Inc(Count);
+      Result[Count] := WideChar($0307);
+      PreviousSpace := False;
+    end
+    else begin
+      for I := 0 to Taken - 1 do
       begin
         Inc(Count);
-        Result[Count] := 'i';
-        Inc(Count);
-        Result[Count] := WideChar($0307);
-        PreviousSpace := False;
-      end
-      else begin
-        for I := 0 to Taken - 1 do
-        begin
-          Inc(Count);
-          Result[Count] := Normalized[At + I];
-        end;
-        PreviousSpace := False;
+        Result[Count] := Normalized[At + I];
       end;
+      PreviousSpace := False;
+    end;
     Inc(At, Taken);
   end;
   SetLength(Result, Count);
@@ -216,9 +215,9 @@ begin
     while (Next <= Length(Text)) and TCharacter.IsLetter(Text, Next) do
       Inc(Next, ClipCodeLength(Text, Next))
   else if not TCharacter.IsNumber(Text, At) then
-      while (Next <= Length(Text)) and not TCharacter.IsWhiteSpace(Text, Next) and
-        not TCharacter.IsLetter(Text, Next) and not TCharacter.IsNumber(Text, Next) do
-          Inc(Next, ClipCodeLength(Text, Next));
+    while (Next <= Length(Text)) and not TCharacter.IsWhiteSpace(Text, Next) and
+      not TCharacter.IsLetter(Text, Next) and not TCharacter.IsNumber(Text, Next) do
+        Inc(Next, ClipCodeLength(Text, Next));
   Result := Next - At;
 end;
 

@@ -63,8 +63,8 @@ implementation
 
 uses
   {$IFDEF FPC}SysUtils, Classes, Math, Types{$ELSE}System.SysUtils, System.Classes, System.Math, System.Types{$ENDIF},
-  CrossVision.Geometry.Types, OpenCV, OpenCVTypes, OpenCVConsts,
-  TVM.Yolo.Native, TVM.Yolo.MatInput, TVM.Yolo.RunOptions;
+  CrossVision.Geometry.Types, OpenCV, OpenCVTypes, OpenCVConsts, TVM.Yolo.Native,
+  TVM.Yolo.MatInput, TVM.Yolo.RunOptions;
 
 type
   TYoloAdapter = class(TInterfacedObject)

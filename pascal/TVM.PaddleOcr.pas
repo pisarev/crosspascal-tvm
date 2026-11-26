@@ -64,9 +64,10 @@ type
   end;
 
   TPaddleDbPostprocess = class
-  private type
-    TOffset = function(XY: PInt64; Count: Integer; Distance: Double; OutputXY: PInt64;
-      Capacity: Integer; var OutputCount, OutputPaths: Integer): Integer; cdecl;
+  private
+    type
+      TOffset = function(XY: PInt64; Count: Integer; Distance: Double; OutputXY: PInt64;
+        Capacity: Integer; var OutputCount, OutputPaths: Integer): Integer; cdecl;
   private
     FModule: HMODULE;
     FLease: TFileStream;

@@ -14,8 +14,8 @@ unit TVM.BiRefNet;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
-  DLPack, TVM, TVM.CpuGraph, TVM.CudaExecution, TVM.WindowsPaths, CrossVision.Mat;
+  {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF}, DLPack,
+  TVM, TVM.CpuGraph, TVM.CudaExecution, TVM.WindowsPaths, CrossVision.Mat;
 
 const
   BiRefNetSide = 800;
