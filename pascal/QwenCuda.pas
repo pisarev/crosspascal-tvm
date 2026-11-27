@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { QwenCuda                                                                   }
 {                                                                            }
@@ -24,7 +24,7 @@ unit QwenCuda;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF};
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF};
 
 const
   QwenSourceRepository = 'Qwen/Qwen2.5-0.5B-Instruct';
@@ -141,13 +141,13 @@ type
 
   TInputLease = class
   private
-    FStreams: TObjectList<TFileStream>;
-    FNames: TStringList;
+    FStreams: TObjectList<TStream>;
+    FNames: TList<string>;
   public
     constructor Create;
     destructor Destroy; override;
     function Hold(const Path: string; const ExpectedBytes: Int64 = -1;
-      const ExpectedSHA256: string = ''): TFileStream;
+      const ExpectedSHA256: string = ''): TStream;
   end;
 
   TQwenSessionState = class
@@ -193,6 +193,8 @@ const
     'e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584',
     '4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee',
     '4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b');
+  UnicodeFFIBytes: Int64 = 2469376;
+  UnicodeFFISHA256 = 'd6f61004f96c06bbc23146a6143ddae0a6ab95831a03539f38f732a0c0f972be';
   TokenizerNames: array[0..4] of string = (
     'tokenizer.index', 'tokenizer-merges.bin', 'tokenizer-specials.txt',
     'tokenizer-tokens.bin', 'tokenizer-tokens.index');
@@ -240,6 +242,15 @@ begin
     Progress(MessageText);
 end;
 
+function SameRuntimePath(const Left, Right: string): Boolean;
+begin
+  {$IFDEF FPC}
+  Result := UnicodeSameText(Left, Right);
+  {$ELSE}
+  Result := SameText(Left, Right);
+  {$ENDIF}
+end;
+
 function DirectoryPath(const Value: string): string;
 var
   Current, Parent: string;
@@ -255,7 +266,7 @@ begin
       ((Attributes and FILE_ATTRIBUTE_REPARSE_POINT) = 0),
       'Select a directory whose path does not contain a link or junction.');
     Parent := ExtractFileDir(Current);
-    if SameText(Parent, Current) or (Parent = '') then
+    if SameRuntimePath(Parent, Current) or (Parent = '') then
       Break;
     Current := Parent;
   until False;
@@ -282,9 +293,8 @@ end;
 constructor TInputLease.Create;
 begin
   inherited Create;
-  FStreams := TObjectList<TFileStream>.Create(True);
-  FNames := TStringList.Create;
-  FNames.CaseSensitive := False;
+  FStreams := TObjectList<TStream>.Create(True);
+  FNames := TList<string>.Create;
 end;
 
 destructor TInputLease.Destroy;
@@ -295,12 +305,18 @@ begin
 end;
 
 function TInputLease.Hold(const Path: string; const ExpectedBytes: Int64;
-  const ExpectedSHA256: string): TFileStream;
+  const ExpectedSHA256: string): TStream;
 var
   Attributes: DWORD;
-  Index: Integer;
+  Index, I: Integer;
 begin
-  Index := FNames.IndexOf(Path);
+  Index := -1;
+  for I := 0 to FNames.Count - 1 do
+    if SameRuntimePath(FNames[I], Path) then
+    begin
+      Index := I;
+      Break;
+    end;
   if Index >= 0 then
     Result := FStreams[Index]
   else begin
@@ -308,7 +324,7 @@ begin
     Require((Attributes <> INVALID_FILE_ATTRIBUTES) and
       ((Attributes and (FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT)) = 0),
       'A required regular file is unavailable: ' + Path);
-    Result := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
+    Result := TNativeReadStream.Create(Path);
     FStreams.Add(Result);
     FNames.Add(Path);
   end;
@@ -322,7 +338,7 @@ begin
   end;
 end;
 
-function ReadText(const Stream: TFileStream): string;
+function ReadText(const Stream: TStream): string;
 var
   Data: TBytes;
 begin
@@ -369,7 +385,7 @@ begin
   end;
 end;
 
-function ReadObject(const Stream: TFileStream): TJSONObject;
+function ReadObject(const Stream: TStream): TJSONObject;
 var
   Value: TJSONValue;
 begin
@@ -746,7 +762,7 @@ var
       'A TVM DLL is already loaded outside the explicit runtime loader.');
     Result := LoadLibraryExW(PWideChar(Directory + FileName), 0, DLLSearchFlags);
     Require(Result <> 0, Format('Cannot load %s: %s', [FileName, SysErrorMessage(GetLastError)]));
-    if not SameText(ModulePath(Result), Directory + FileName) then
+    if not SameRuntimePath(ModulePath(Result), Directory + FileName) then
     begin
       FreeLibrary(Result);
       raise EQwenCuda.Create('A TVM DLL resolved outside the selected runtime directory.');
@@ -757,7 +773,7 @@ begin
   Require(not RuntimeInitializationFailed, 'Runtime initialization failed earlier. Restart the application.');
   if LoadedRuntimeDirectory <> '' then
   begin
-    Require(SameText(LoadedRuntimeDirectory, Directory),
+    Require(SameRuntimePath(LoadedRuntimeDirectory, Directory),
       'Restart the application before selecting a different runtime.');
     Require(TVMThreadShutdownAvailable,
       'The selected TVM runtime lacks safe thread shutdown. Prepare the matching runtime kit.');
@@ -1022,11 +1038,11 @@ function TQwenCudaSession.Execute(const BundleDirectory, RuntimeDirectory, Promp
 const
   EffortBudget: array[TQwenAnswerEffort] of Integer = (0, 128, 512, 1024);
 var
-  Bundle, Runtime, ChatText, ModelArch, DeviceArch: string;
+  Bundle, Runtime, ChatText, ModelArch, DeviceArch, RuntimeHash: string;
   ErrorText: {$IFDEF FPC}AnsiString{$ELSE}string{$ENDIF};
   State: TQwenSessionState;
   ModelInfo, Passport, ParamsInfo: TJSONObject;
-  ModelStream, IndexStream, ParamsStream: TFileStream;
+  ModelStream, IndexStream, ParamsStream, RuntimeStream: TStream;
   Profile: TQwenCudaProfile;
   ParameterBytes, CacheBytes, WorkspaceBytes: Int64;
   EmbedTensor, LogitsTensor: TTVMFFIObjectHandle;
@@ -1071,8 +1087,8 @@ begin
     Bundle := DirectoryPath(BundleDirectory);
     Runtime := DirectoryPath(RuntimeDirectory);
     State := TQwenSessionState(FState);
-    Reused := Assigned(State) and SameText(State.Bundle, Bundle) and
-      SameText(State.Runtime, Runtime);
+    Reused := Assigned(State) and SameRuntimePath(State.Bundle, Bundle) and
+      SameRuntimePath(State.Runtime, Runtime);
     if Reused then
     begin
       Notify(Progress, 'Reusing the verified model already loaded on CUDA.');
@@ -1107,7 +1123,17 @@ begin
       for I := 0 to High(TokenizerNames) do
         State.Lease.Hold(Bundle + TokenizerNames[I], TokenizerBytes[I], TokenizerSHA256[I]);
       for I := 0 to High(RuntimeNames) do
-        State.Lease.Hold(Runtime + RuntimeNames[I], RuntimeBytes[I], RuntimeSHA256[I]);
+        if I = 0 then
+        begin
+          RuntimeStream := State.Lease.Hold(Runtime + RuntimeNames[I]);
+          RuntimeHash := StreamSHA256(RuntimeStream);
+          Require(((RuntimeStream.Size = RuntimeBytes[I]) and
+            (RuntimeHash = RuntimeSHA256[I])) or
+            ((RuntimeStream.Size = UnicodeFFIBytes) and (RuntimeHash = UnicodeFFISHA256)),
+            'Runtime SHA-256 does not match the supplied FFI family: ' + RuntimeNames[I]);
+        end
+        else
+          State.Lease.Hold(Runtime + RuntimeNames[I], RuntimeBytes[I], RuntimeSHA256[I]);
       State.Tokenizer := TQwenTokenizer.Create;
       RequireCall(State.Tokenizer.Load(Bundle, @ErrorText), @ErrorText);
       Require((State.Tokenizer.TokenCount = QwenBOS) and

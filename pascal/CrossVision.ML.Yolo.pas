@@ -14,8 +14,8 @@ unit CrossVision.ML.Yolo;
 interface
 
 uses
-  DLPack, CrossVision.Mat, CrossVision.ML, CrossVision.ML.Depth, TVM.Yolo.Profile,
-  TVM.CpuGraph;
+  CrossPascal.NativeIO, DLPack, CrossVision.Mat, CrossVision.ML, CrossVision.ML.Depth,
+  TVM.Yolo.Profile, TVM.CpuGraph;
 
 const
   YoloDefaultResultByteLimit = 512 * 1024 * 1024;
@@ -107,7 +107,7 @@ type
 
 function LoadYoloImage(const FileName: string; const MaxEncodedBytes: NativeInt): IMat;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   Bytes: TBytes;
   Handle: TMat;
 begin
@@ -115,8 +115,7 @@ begin
     raise Exception.Create('Select the OpenCV image runtime before loading a YOLO image');
   if (MaxEncodedBytes <= 0) or (MaxEncodedBytes > High(Integer)) then
     raise EArgumentException.Create('Invalid YOLO encoded image memory limit');
-  Stream := TFileStream.Create({$IFDEF FPC}{$IFDEF UNIX}UTF8Encode(FileName){$ELSE}FileName{$ENDIF}{$ELSE}FileName{$ENDIF},
-    fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(FileName);
   try
     if (Stream.Size <= 0) or (Stream.Size > MaxEncodedBytes) then
       raise EArgumentException.Create('YOLO image file is empty or exceeds the configured encoded byte limit');

@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { TVM.BiRefNet                                                               }
 {                                                                            }
@@ -14,8 +14,8 @@ unit TVM.BiRefNet;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF}, DLPack,
-  TVM, TVM.CpuGraph, TVM.CudaExecution, TVM.WindowsPaths, CrossVision.Mat;
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
+  DLPack, TVM, TVM.CpuGraph, TVM.CudaExecution, TVM.WindowsPaths, CrossVision.Mat;
 
 const
   BiRefNetSide = 800;
@@ -37,7 +37,7 @@ type
     FCloseState: TCloseState;
     FCloseError: string;
     FContextUncertain: Boolean;
-    FLease: TFileStream;
+    FLease: TStream;
     FDevice: TDLDeviceType;
     FDeviceName: string;
     FModelSHA256: string;
@@ -290,7 +290,7 @@ begin
     RequireCpu(ModelText(Artifact.GetValue('file')) = LibraryName,
       'Unsupported BiRefNet model library name');
     LibraryName := BundleMember(Folder, LibraryName);
-    FLease := TFileStream.Create(LibraryName, fmOpenRead or fmShareDenyWrite);
+    FLease := TNativeReadStream.Create(LibraryName);
     FModelSHA256 := SHA256Stream(FLease);
     RequireCpu(SameText(FModelSHA256, ModelText(Artifact.GetValue('hash'))),
       'BiRefNet model SHA-256 differs');

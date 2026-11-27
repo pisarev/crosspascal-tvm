@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { GemmaTokenizer                                                             }
 {                                                                            }
@@ -45,7 +45,7 @@ type
     function CharToId(const Cp: Cardinal): Integer;
     procedure Clear;
   public
-    function Load(const Directory: string; const Error: PString): Boolean; override;
+    function Load(const Directory: UnicodeString; const Error: PString): Boolean; override;
     function Loaded: Boolean; override;
     function TokenCount: Integer; override;
     function BosId: Integer;
@@ -100,9 +100,9 @@ begin
     FByteId[I] := -1;
 end;
 
-function TGemmaTokenizer.Load(const Directory: string; const Error: PString): Boolean;
+function TGemmaTokenizer.Load(const Directory: UnicodeString; const Error: PString): Boolean;
 var
-  Dir: string;
+  Dir: UnicodeString;
   Index, Merges, Chars, Bytes: TBytes;
   Spans: PCardinal;
   Triples: PInteger;

@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { Qwen35Session                                                              }
 {                                                                            }
@@ -13,8 +13,8 @@ unit Qwen35Session;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, QwenCuda, Qwen35Native, QwenTokenizer,
-  CrossPascal.Json, Qwen35Vision;
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, QwenCuda,
+  Qwen35Native, QwenTokenizer, CrossPascal.Json, Qwen35Vision;
 
 type
   TQwen35Session = class
@@ -57,7 +57,7 @@ var
   Data: TJSONValue;
   Manifest, Hashes, Sources: TJSONObject;
   RuntimeDirectory, Decoder, TokenizerFile, Name, Storage, VisionManifest, CVLibrary: string;
-  Stream: TFileStream;
+  Stream: TStream;
   I: Integer;
   Started: UInt64;
 begin
@@ -93,7 +93,7 @@ begin
     if TokenizerFile = '' then TokenizerFile := 'tokenizer.json';
     RequireCpu(Hashes.GetValue(TokenizerFile) <> nil, 'Missing Qwen tokenizer hash');
     if Assigned(Progress) then Progress('Verifying the Qwen tokenizer...');
-    Stream := TFileStream.Create(BundleMember(Folder, TokenizerFile), fmOpenRead or fmShareDenyWrite);
+    Stream := TNativeReadStream.Create(BundleMember(Folder, TokenizerFile));
     try
       RequireCpu(SameText(SHA256Stream(Stream), ModelText(Hashes.GetValue(TokenizerFile))),
         'Qwen tokenizer changed');

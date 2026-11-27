@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { BPETokenizer                                                               }
 {                                                                            }
@@ -13,7 +13,7 @@ unit BPETokenizer;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF};
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF};
 
 type
   TCustomBPETokenizer = class(TObject)
@@ -30,11 +30,11 @@ type
     procedure Put(const Left, Right, Joined, Rank: Integer);
     function Find(const Left, Right: Integer; out Rank, Joined: Integer): Boolean;
     function MergeBPE(var Ids: TArray<Integer>; const Count: Integer): Integer;
-    function ReadWholeFile(const Path: string; out Data: TBytes): Boolean;
+    function ReadWholeFile(const Path: UnicodeString; out Data: TBytes): Boolean;
     procedure RequireLoaded;
   public
     destructor Destroy; override;
-    function Load(const Directory: string; const Error: PString): Boolean; virtual; abstract;
+    function Load(const Directory: UnicodeString; const Error: PString): Boolean; virtual; abstract;
     function Loaded: Boolean; virtual; abstract;
     function TokenCount: Integer; virtual; abstract;
     function MergeCount: Integer;
@@ -153,15 +153,15 @@ begin
   Result := Live;
 end;
 
-function TCustomBPETokenizer.ReadWholeFile(const Path: string; out Data: TBytes): Boolean;
+function TCustomBPETokenizer.ReadWholeFile(const Path: UnicodeString; out Data: TBytes): Boolean;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   Size: Integer;
 begin
   Result := False;
   SetLength(Data, 0);
   try
-    Stream := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
+    Stream := TNativeReadStream.Create(Path);
     try
       if Stream.Size > High(Integer) then
         Exit;

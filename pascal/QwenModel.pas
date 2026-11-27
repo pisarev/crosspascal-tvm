@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { QwenModel                                                                  }
 {                                                                            }
@@ -14,8 +14,7 @@ unit QwenModel;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF},
-  DLPack,
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, DLPack,
   TVM;
 
 type
@@ -28,7 +27,7 @@ type
 
   TQwenModel = record
   public
-    Directory: string;
+    Directory: UnicodeString;
     Entries: TArray<TQwenParamEntry>;
     ParamHandles: TArray<TTVMFFIObjectHandle>;
     ParamsArray: TTVMFFIObjectHandle;
@@ -40,8 +39,8 @@ type
     EmbedFunc: TTVMFFIObjectHandle;
     PrefillFunc: TTVMFFIObjectHandle;
     DecodeFunc: TTVMFFIObjectHandle;
-    function Load(const ADirectory: string; const Error: PString;
-      const LibraryName: string = ''): Boolean;
+    function Load(const ADirectory: UnicodeString; const Error: PString;
+      const LibraryName: UnicodeString = ''): Boolean;
     procedure Unload;
     function CreateCache(const MaxBatch, MaxTotal, Chunk, Page: Int64;
       const Error: PString): Boolean;
@@ -66,7 +65,7 @@ type
 
 function SplitWords(const Line: string): TQwenWords;
 
-function ReadChunk(const Path: string; const Offset, Count: Int64; const Target: Pointer): Boolean;
+function ReadChunk(const Path: UnicodeString; const Offset, Count: Int64; const Target: Pointer): Boolean;
 
 function ArgMaxOf(const Values: PSingle; const Count: Int64): Int64;
 
@@ -97,9 +96,9 @@ begin
   end;
 end;
 
-function ReadChunk(const Path: string; const Offset, Count: Int64; const Target: Pointer): Boolean;
+function ReadChunk(const Path: UnicodeString; const Offset, Count: Int64; const Target: Pointer): Boolean;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   ReadBytes: Integer;
   Remaining: Int64;
   Dest: PByte;
@@ -108,7 +107,7 @@ begin
   if (Offset < 0) or (Count < 0) or ((Count > 0) and not Assigned(Target)) then
     Exit;
   try
-    Stream := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
+    Stream := TNativeReadStream.Create(Path);
     try
       if (Offset > Stream.Size) or (Count > Stream.Size - Offset) then
         Exit;
@@ -167,7 +166,7 @@ begin
     end;
 end;
 
-function ReadParamIndex(const Path: string; out Entries: TArray<TQwenParamEntry>;
+function ReadParamIndex(const Path: UnicodeString; out Entries: TArray<TQwenParamEntry>;
   out DataType, Target: string): Boolean;
 var
   F: TextFile;
@@ -257,10 +256,11 @@ begin
     Count * SizeOf(Single), Error);
 end;
 
-function TQwenModel.Load(const ADirectory: string; const Error: PString;
-  const LibraryName: string): Boolean;
+function TQwenModel.Load(const ADirectory: UnicodeString; const Error: PString;
+  const LibraryName: UnicodeString): Boolean;
 var
-  DataType, Target, ModuleFile: string;
+  DataType, Target: string;
+  ModuleFile: UnicodeString;
   Raw: PDLTensor;
   Staging: Pointer;
   Once: TTVMFFIObjectHandle;

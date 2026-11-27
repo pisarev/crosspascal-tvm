@@ -14,7 +14,7 @@ unit Qwen35Vision;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
   DLPack, TVM, TVM.CpuGraph, TVM.CudaExecution, QwenCuda, Qwen35Weights;
 
 type
@@ -31,7 +31,7 @@ type
     FDevice: TDLDeviceType;
     FGraph: TCpuGraph;
     FFiles: TQwen35WeightFiles;
-    FLocks: TArray<TFileStream>;
+    FLocks: TArray<TStream>;
     FWeights: TArray<TQwen35Weight>;
     FWeightFloatBytes: UInt64;
     FImageHeight: Integer;
@@ -134,13 +134,13 @@ end;
 { Hashes every files[] member and keeps it open with fmShareDenyWrite, so the
   verified bytes cannot be rewritten while this instance maps or loads them. }
 procedure VerifyFiles(const Folder: string; const Files: TJSONArray;
-  const LibraryFile, WeightsFile: string; var Locks: TArray<TFileStream>; out WeightsBytes: Int64);
+  const LibraryFile, WeightsFile: string; var Locks: TArray<TStream>; out WeightsBytes: Int64);
 var
   Seen: TDictionary<string, Boolean>;
   Entry: TJSONObject;
   Name, Digest: string;
   Bytes: Int64;
-  Stream: TFileStream;
+  Stream: TStream;
   I: Integer;
   HasLibrary: Boolean;
 begin
@@ -158,7 +158,7 @@ begin
       Digest := ManifestText(Entry, 'sha256');
       RequireCpu((Bytes > 0) and ValidDigest(Digest), 'Invalid Qwen vision file entry: ' + Name);
       SetLength(Locks, Length(Locks) + 1);
-      Locks[High(Locks)] := TFileStream.Create(BundleMember(Folder, Name), fmOpenRead or fmShareDenyWrite);
+      Locks[High(Locks)] := TNativeReadStream.Create(BundleMember(Folder, Name));
       Stream := Locks[High(Locks)];
       RequireCpu(Stream.Size = Bytes, 'Qwen vision artifact size changed: ' + Name);
       RequireCpu(SHA256Stream(Stream) = Digest, 'Qwen vision artifact changed: ' + Name);

@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { Qwen35PackedCuda                                                           }
 {                                                                            }
@@ -14,7 +14,7 @@ unit Qwen35PackedCuda;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Windows, Generics.Collections{$ELSE}System.SysUtils, Winapi.Windows, System.Generics.Collections{$ENDIF},
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Windows, Generics.Collections{$ELSE}System.SysUtils, Winapi.Windows, System.Generics.Collections{$ENDIF},
   TVM, DLPack, TVM.CpuGraph;
 
 type
@@ -93,7 +93,7 @@ constructor TQwen35PackedCuda.Create(const ModuleFile: string);
 var
   Load: TLoad;
   Image: TBytes;
-  Stream: TFileStream;
+  Stream: TStream;
 begin
   inherited Create;
   FDriver := LoadLibraryExW('nvcuda.dll', 0, CudaSystem32Search);
@@ -105,7 +105,7 @@ begin
   FZero := TZero(Entry('cuMemsetD32_v2'));
   FSync := TSync(Entry('cuCtxSynchronize'));
   FMemoryInfo := TMemoryInfo(Entry('cuMemGetInfo_v2'));
-  Stream := TFileStream.Create(ModuleFile, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(ModuleFile);
   try
     RequireCpu((Stream.Size > 0) and (Stream.Size <= 64 * 1024 * 1024), 'Invalid packed CUDA module size');
     SetLength(Image, Stream.Size);

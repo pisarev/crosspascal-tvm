@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { CrossPascal.SentencePiece                                                  }
 {                                                                            }
@@ -13,7 +13,7 @@ unit CrossPascal.SentencePiece;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Windows{$ELSE}System.SysUtils, Winapi.Windows{$ENDIF};
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Windows{$ELSE}System.SysUtils, Winapi.Windows{$ENDIF};
 
 type
   TSentencePiece = class
@@ -56,7 +56,7 @@ end;
 constructor TSentencePiece.Create(const LibraryPath, ModelPath: string);
 var
   Bytes: TBytes;
-  Stream: TFileStream;
+  Stream: TStream;
   Load: TLoad;
 begin
   inherited Create;
@@ -67,7 +67,7 @@ begin
   FID := TID(Entry('cp_sp_id'));
   FEncode := TEncode(Entry('cp_sp_encode'));
   FDecode := TDecode(Entry('cp_sp_decode'));
-  Stream := TFileStream.Create(ModelPath, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(ModelPath);
   try
     if (Stream.Size <= 0) or (Stream.Size > 64 * 1024 * 1024) then
       raise Exception.Create('Invalid SentencePiece model size');

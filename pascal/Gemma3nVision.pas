@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { Gemma3nVision                                                              }
 {                                                                            }
@@ -14,8 +14,8 @@ unit Gemma3nVision;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, TVM.CpuGraph, TVM.CudaExecution,
-  DLPack, QwenCuda;
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, TVM.CpuGraph,
+  TVM.CudaExecution, DLPack, QwenCuda;
 
 type
   TCudaVisionMemory = procedure of object;
@@ -64,12 +64,12 @@ uses
 
 function ReadNpyFloats(const Path: string; const Count: Integer): TArray<Single>;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   Header: AnsiString;
   Magic: array[0..7] of Byte;
   HeaderSize: Word;
 begin
-  Stream := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(Path);
   try
     Stream.ReadBuffer(Magic, SizeOf(Magic));
     RequireCpu((Magic[0] = $93) and (Magic[1] = Ord('N')) and (Magic[2] = Ord('U')) and
@@ -322,7 +322,7 @@ function TGemma3nVision.Encode(const FileName: string; const ShouldStop: TQwenSt
 const
   WorkspaceReserve = UInt64(2) * 1024 * 1024 * 1024;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   Bytes: TBytes;
   Raw: TMat;
   Image: IMat;
@@ -351,7 +351,7 @@ var
   end;
 
 begin
-  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(FileName);
   try
     RequireCpu((Stream.Size > 0) and (Stream.Size <= 256 * 1024 * 1024), 'Invalid image file size');
     SetLength(Bytes, Stream.Size);

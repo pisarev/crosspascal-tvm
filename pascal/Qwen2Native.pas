@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { Qwen2Native                                                                }
 {                                                                            }
@@ -13,7 +13,7 @@ unit Qwen2Native;
 interface
 
 uses
-  QwenCuda, QwenTokenizer, TVM.CudaExecution, TVM.TokenGraph;
+  CrossPascal.NativeIO, QwenCuda, QwenTokenizer, TVM.CudaExecution, TVM.TokenGraph;
 
 type
   TQwen2Native = class
@@ -47,11 +47,11 @@ var
   Context, Chunk: Int64;
   Available, Total: UInt64;
   Architecture, Path: string;
-  Stream: TFileStream;
+  Stream: TStream;
 begin
   inherited Create;
   Path := BundleMember(Folder, 'model.json');
-  Stream := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(Path);
   try
     FInfo.ModelMetadataSHA256 := SHA256Stream(Stream);
     Data := ReadModelJSON(Path);

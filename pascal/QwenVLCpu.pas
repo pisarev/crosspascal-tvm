@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { QwenVLCpu                                                                  }
 {                                                                            }
@@ -14,7 +14,7 @@ unit QwenVLCpu;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes, Generics.Collections
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Classes, Generics.Collections
   {$ELSE}System.SysUtils, System.Classes, System.Generics.Collections{$ENDIF},
   CrossPascal.Json, DLPack, QwenTokenizer, TVM, TVM.CpuGraph, TVM.CudaExecution,
   QwenCuda;
@@ -158,7 +158,7 @@ function TQwenVLCpu.WeightFile(const Spec: TJSONObject; out Shape: TArray<Int64>
 var
   Name, Path, DataType: string;
   I: Integer;
-  Stream: TFileStream;
+  Stream: TStream;
 begin
   Name := ModelText(Spec.GetValue('file'));
   Shape := ModelShape(Spec.GetValue('shape'));
@@ -172,7 +172,7 @@ begin
     Result := TMappedModelFile(FMaps.Objects[I])
   else begin
     Path := BundleMember(FFolder, Name);
-    Stream := TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite);
+    Stream := TNativeReadStream.Create(Path);
     try
       RequireCpu(SameText(SHA256Stream(Stream), ModelText(Spec.GetValue('sha256'))),
         'Qwen-VL weight file changed: ' + Name);

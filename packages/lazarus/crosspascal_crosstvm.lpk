@@ -11,7 +11,7 @@
     <CompilerOptions>
       <Version Value="11" />
       <SearchPaths>
-        <OtherUnitFiles Value="../../pascal;../../../crosspascal-opencv/pascal;../../../crosspascal/rtl-algorithms/src" />
+        <OtherUnitFiles Value="../../pascal" />
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)" />
       </SearchPaths>
       <Parsing>
@@ -23,7 +23,7 @@
         <CustomOptions Value="-dTVM_LAZY_INIT" />
       </Other>
     </CompilerOptions>
-    <Files Count="14">
+    <Files Count="19">
       <Item1>
         <Filename Value="../../pascal/BPETokenizer.pas" />
         <UnitName Value="BPETokenizer" />
@@ -80,14 +80,40 @@
         <Filename Value="../../pascal/CrossPascal.WinMemory.pas" />
         <UnitName Value="CrossPascal.WinMemory" />
       </Item14>
+      <Item15>
+        <Filename Value="../../pascal/CrossPascal.TokenizerJson.pas" />
+        <UnitName Value="CrossPascal.TokenizerJson" />
+      </Item15>
+      <Item16>
+        <Filename Value="../../pascal/TVM.CpuGraph.pas" />
+        <UnitName Value="TVM.CpuGraph" />
+      </Item16>
+      <Item17>
+        <Filename Value="../../pascal/TVM.CudaExecution.pas" />
+        <UnitName Value="TVM.CudaExecution" />
+      </Item17>
+      <Item18>
+        <Filename Value="../../pascal/TVM.GraphLibrary.pas" />
+        <UnitName Value="TVM.GraphLibrary" />
+      </Item18>
+      <Item19>
+        <Filename Value="../../pascal/TVM.Threads.pas" />
+        <UnitName Value="TVM.Threads" />
+      </Item19>
     </Files>
-    <RequiredPkgs Count="1">
-      <Item1>
-        <PackageName Value="FCL" />
-      </Item1>
-    </RequiredPkgs>
     <UsageOptions>
       <UnitPath Value="$(PkgOutDir)" />
     </UsageOptions>
+    <RequiredPkgs Count="3">
+      <Item1>
+        <PackageName Value="crosspascal_crosscv" />
+      </Item1>
+      <Item2>
+        <PackageName Value="crosspascal_cvcore" />
+      </Item2>
+      <Item3>
+        <PackageName Value="FCL" />
+      </Item3>
+    </RequiredPkgs>
   </Package>
 </CONFIG>

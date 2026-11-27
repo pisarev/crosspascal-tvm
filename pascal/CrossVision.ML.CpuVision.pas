@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { CrossVision.ML.CpuVision                                                   }
 {                                                                            }
@@ -17,7 +17,7 @@ unit CrossVision.ML.CpuVision;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes,{$ELSE}System.SysUtils, System.Classes,{$ENDIF}
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Classes,{$ELSE}System.SysUtils, System.Classes,{$ENDIF}
   CrossPascal.Json, CrossVision.Mat, CrossVision.ML;
 
 type
@@ -84,6 +84,9 @@ const
     'e7580dbaeb87a480fcaac3ffe30bca1b294c0c370c7c02b24228b1e56fdd4584',
     '4fe689aa56b1a46349def33dd75f5066f70e1a0ba5d156e2e74e8667d3a7beee',
     '4c67e81596267e94b153e855290fda1320ac0f4852faa36f8ac7184be585e87b');
+  OfficialFFIBytes: Int64 = 4082176;
+  PatchedFFIBytes: Int64 = 2469376;
+  PatchedFFISHA256 = 'd6f61004f96c06bbc23146a6143ddae0a6ab95831a03539f38f732a0c0f972be';
   LightSqueezeNetSHA256 = '770b0f3c8623e18bf58b53754d710051b4c268248422142980a132bbe6dfe908';
 
 type
@@ -99,7 +102,8 @@ type
 var
   VisionRuntimeLock: TRTLCriticalSection;
   LoadedRuntimeDirectory: string;
-  RuntimeLeases: array[0..3] of TFileStream;
+  RuntimeLeases: array[0..3] of TStream;
+  RuntimeLeaseHashes: array[0..3] of string;
 
 procedure Require(const Condition: Boolean; const MessageText: string);
 begin
@@ -232,15 +236,24 @@ begin
   Result := False;
 end;
 
+function SameRuntimePath(const Left, Right: string): Boolean;
+begin
+  {$IFDEF FPC}
+  Result := UnicodeSameText(Left, Right);
+  {$ELSE}
+  Result := SameText(Left, Right);
+  {$ENDIF}
+end;
+
 function LoadCpuVisionProfiles(const CatalogPath: string): TArray<TCpuVisionProfile>;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   Root, Item: TJSONObject;
   Rows, Hashes: TJSONArray;
   I, J, K: Integer;
   CatalogHash: string;
 begin
-  Stream := TFileStream.Create(CatalogPath, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(CatalogPath);
   try
     CatalogHash := HashStream(Stream);
     Root := ParseObject(ReadTextStream(Stream, 1024 * 1024));
@@ -311,33 +324,45 @@ end;
 procedure InitializeVisionRuntime(const RuntimeDirectory: string; const NeedCuda: Boolean);
 var
   Directory: string;
-  Lease: TFileStream;
+  PendingLeases: array[0..3] of TStream;
+  PendingHashes: array[0..3] of string;
+  Measured: string;
   I, Last: Integer;
 begin
+  FillChar(PendingLeases, SizeOf(PendingLeases), 0);
   Directory := IncludeTrailingPathDelimiter(ExpandFileName(RuntimeDirectory));
   EnterCriticalSection(VisionRuntimeLock);
   try
     if LoadedRuntimeDirectory <> '' then
-      Require(SameText(LoadedRuntimeDirectory, Directory),
+      Require(SameRuntimePath(LoadedRuntimeDirectory, Directory),
         'Restart the application before selecting a different TVM runtime.');
-    LoadedRuntimeDirectory := Directory;
     Last := 2;
     if NeedCuda then Last := 3;
     for I := 0 to Last do
       if RuntimeLeases[I] = nil then
       begin
-        Lease := TFileStream.Create(Directory + RuntimeNames[I], fmOpenRead or fmShareDenyWrite);
-        try
-          Require(SameText(HashStream(Lease), RuntimeHashes[I]),
+        PendingLeases[I] := TNativeReadStream.Create(Directory + RuntimeNames[I]);
+        Measured := HashStream(PendingLeases[I]);
+        if I = 0 then
+          Require(((PendingLeases[I].Size = OfficialFFIBytes) and SameText(Measured, RuntimeHashes[I])) or
+            ((PendingLeases[I].Size = PatchedFFIBytes) and SameText(Measured, PatchedFFISHA256)),
+            'Runtime SHA-256 does not match the supplied family: ' + RuntimeNames[I])
+        else
+          Require(SameText(Measured, RuntimeHashes[I]),
             'Runtime SHA-256 does not match the supplied family: ' + RuntimeNames[I]);
-          RuntimeLeases[I] := Lease;
-          Lease := nil;
-        finally
-          Lease.Free;
-        end;
+        PendingHashes[I] := Measured;
       end;
     QwenCuda.InitializeRuntime(Directory, NeedCuda);
+    LoadedRuntimeDirectory := Directory;
+    for I := 0 to Last do
+      if PendingLeases[I] <> nil then
+      begin
+        RuntimeLeaseHashes[I] := PendingHashes[I];
+        RuntimeLeases[I] := PendingLeases[I];
+        PendingLeases[I] := nil;
+      end;
   finally
+    for I := 0 to High(PendingLeases) do PendingLeases[I].Free;
     LeaveCriticalSection(VisionRuntimeLock);
   end;
 end;
@@ -628,7 +653,8 @@ begin
     begin
       Row := TJSONObject.Create;
       Row.AddPair('file', RuntimeNames[I]);
-      Row.AddPair('sha256', RuntimeHashes[I]);
+      Require(RuntimeLeaseHashes[I] <> '', 'Runtime identity was not recorded.');
+      Row.AddPair('sha256', RuntimeLeaseHashes[I]);
       RuntimeFiles.AddElement(Row);
     end;
     Classes := TJSONArray.Create;
@@ -680,7 +706,7 @@ function RunVisionBundle(const Profile: TCpuVisionProfile;
 const
   MiB = 1024 * 1024;
 var
-  ManifestLease, ModelLease, SidecarLease, ImageLease: TFileStream;
+  ManifestLease, ModelLease, SidecarLease, ImageLease: TStream;
   Root: TJSONObject;
   Descriptor: TModelDescriptor;
   ModelName, ModelHash, SourceHash, ModelPath, Sidecar, InputName, DeviceName: string;
@@ -729,24 +755,23 @@ begin
   Workspace := nil;
   try
     Say('Checking the selected bundle and source identity...');
-    ManifestLease := TFileStream.Create(SafeFile(BundleDirectory, 'manifest.json'),
-      fmOpenRead or fmShareDenyWrite);
+    ManifestLease := TNativeReadStream.Create(SafeFile(BundleDirectory, 'manifest.json'));
     Result.ManifestSHA256 := HashStream(ManifestLease);
     Root := ParseObject(ReadTextStream(ManifestLease, 1024 * 1024));
     ValidateManifest(Root, Profile, AllowCuda, ModelName, ModelHash, SourceHash, InputName,
       Result.Device, Result.CudaArchitecture);
     Result.InputName := InputName;
     ModelPath := SafeFile(BundleDirectory, ModelName);
-    ModelLease := TFileStream.Create(ModelPath, fmOpenRead or fmShareDenyWrite);
+    ModelLease := TNativeReadStream.Create(ModelPath);
     Require((ModelLease.Size > 0) and (ModelLease.Size <= Int64(512) * 1024 * 1024),
       'The model DLL must be between 1 byte and 512 MiB.');
     Require(SameText(HashStream(ModelLease), ModelHash), 'Model-library SHA-256 mismatch.');
-    SidecarLease := TFileStream.Create(ModelPath + '.inputs', fmOpenRead or fmShareDenyWrite);
+    SidecarLease := TNativeReadStream.Create(ModelPath + '.inputs');
     Sidecar := Trim(ReadTextStream(SidecarLease, 4096));
     Require(Sidecar = '0'#9 + InputName + #9 + '1,3,' +
       IntToStr(Profile.InputSize) + ',' + IntToStr(Profile.InputSize),
       'The model must have exactly the selected single input.');
-    ImageLease := TFileStream.Create(ImagePath, fmOpenRead or fmShareDenyWrite);
+    ImageLease := TNativeReadStream.Create(ImagePath);
     Result.InputSHA256 := HashStream(ImageLease);
     Require(SameText(Result.InputSHA256, ImageSHA256),
       'The image file changed after it was decoded. Open it again before inference.');

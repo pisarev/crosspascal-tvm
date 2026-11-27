@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { TVM.PaddleOcr                                                              }
 {                                                                            }
@@ -14,7 +14,7 @@ unit TVM.PaddleOcr;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes, Windows{$ELSE}System.SysUtils, System.Classes, Winapi.Windows{$ENDIF},
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Classes, Windows{$ELSE}System.SysUtils, System.Classes, Winapi.Windows{$ENDIF},
   DLPack, TVM, TVM.CpuGraph, TVM.CudaExecution, CrossVision.Mat, OpenCVTypes;
 
 const
@@ -45,7 +45,7 @@ type
     FGraph: TCpuGraph;
     FCuda: TCudaExecution;
     FWorkspace: TCudaWorkspace;
-    FLease: TFileStream;
+    FLease: TStream;
     FDevice: TDLDeviceType;
     FShape: TArray<Int64>;
     FKind: string;
@@ -70,7 +70,7 @@ type
         Capacity: Integer; var OutputCount, OutputPaths: Integer): Integer; cdecl;
   private
     FModule: HMODULE;
-    FLease: TFileStream;
+    FLease: TStream;
     FOffset: TOffset;
     function Unclip(const Quad: TPaddleQuad; out Expanded: TPaddleQuad): Boolean;
   public
@@ -187,12 +187,12 @@ end;
 
 function PaddleLoadDictionary(const FileName: string): TArray<string>;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   Data: UTF8String;
   Text: string;
   I, Start, Count: Integer;
 begin
-  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(FileName);
   try
     RequireCpu(SHA256Stream(Stream) = PaddleDictionarySHA256, 'PaddleOCR dictionary SHA-256 differs');
     Stream.Position := 0;
@@ -318,7 +318,7 @@ begin
       FDeviceName := FCuda.DeviceName + ' (' + Architecture + ')';
     end;
     FLibraryName := BundleMember(Folder, ModelText(Artifact.GetValue('file')));
-    FLease := TFileStream.Create(FLibraryName, fmOpenRead or fmShareDenyWrite);
+    FLease := TNativeReadStream.Create(FLibraryName);
     RequireCpu(SameText(SHA256Stream(FLease), ModelText(Artifact.GetValue('hash'))),
       'PaddleOCR model SHA-256 differs');
     InitializeRuntime(IncludeTrailingPathDelimiter(ExpandFileName(RuntimeDirectory)), FDevice = kDLCUDA);
@@ -515,7 +515,7 @@ var
 begin
   inherited Create;
   FileName := ExpandFileName(ClipperLibrary);
-  FLease := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  FLease := TNativeReadStream.Create(FileName);
   RequireCpu(SHA256Stream(FLease) = PaddleClipperSHA256, 'PaddleOCR Clipper SHA-256 differs');
   FModule := LoadLibraryExW(PWideChar(FileName), 0, $00000100 or $00001000);
   RequireCpu(FModule <> 0, 'PaddleOCR Clipper library failed to load');

@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { ClipTokenizer                                                              }
 {                                                                            }
@@ -13,7 +13,7 @@ unit ClipTokenizer;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, BPETokenizer;
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils{$ELSE}System.SysUtils{$ENDIF}, BPETokenizer;
 
 const
   ClipVocabularySize = 49408;
@@ -41,7 +41,7 @@ type
     procedure AppendWord(const Text: UnicodeString; var Ids: TArray<Integer>; var Count: Integer);
     procedure AppendNormalized(const Text: UnicodeString; var Ids: TArray<Integer>; var Count: Integer);
   public
-    function Load(const Directory: string; const Error: PString): Boolean; override;
+    function Load(const Directory: UnicodeString; const Error: PString): Boolean; override;
     function Loaded: Boolean; override;
     function TokenCount: Integer; override;
     function Encode(const Text: UnicodeString): TArray<Integer>; overload; override;
@@ -132,12 +132,12 @@ begin
 end;
 {$ENDIF}
 
-function ReadClipSource(const FileName: string): UnicodeString;
+function ReadClipSource(const FileName: UnicodeString): UnicodeString;
 var
-  Stream: TFileStream;
+  Stream: TStream;
   Bytes: UTF8String;
 begin
-  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  Stream := TNativeReadStream.Create(FileName);
   try
     if (Stream.Size <= 0) or (Stream.Size > ClipMaximumSourceBytes) then
       raise Exception.Create('Invalid CLIP tokenizer file size: ' + FileName);
@@ -235,13 +235,13 @@ begin
   end;
 end;
 
-function TClipTokenizer.Load(const Directory: string; const Error: PString): Boolean;
+function TClipTokenizer.Load(const Directory: UnicodeString; const Error: PString): Boolean;
 var
   Root: TJSONValue;
   Vocab: TJSONObject;
   Names: TDictionary<UnicodeString, Integer>;
   Used: TArray<Boolean>;
-  Dir: string;
+  Dir: UnicodeString;
   Name, A, B, Merges: UnicodeString;
   I, Id, Next, Split, Left, Right, Joined, At: Integer;
 begin

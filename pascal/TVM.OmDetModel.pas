@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { TVM.OmDetModel                                                             }
 {                                                                            }
@@ -14,7 +14,7 @@ unit TVM.OmDetModel;
 interface
 
 uses
-  {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
+  CrossPascal.NativeIO, {$IFDEF FPC}SysUtils, Classes{$ELSE}System.SysUtils, System.Classes{$ENDIF},
   ClipTokenizer, DLPack, TVM, TVM.CpuGraph, TVM.CudaExecution, TVM.WindowsPaths;
 
 const
@@ -56,7 +56,7 @@ type
     FCloseError: string;
     FContextUncertain: Boolean;
     FDirectory: TWindowsModelDirectory;
-    FLeases: array[0..4] of TFileStream;
+    FLeases: array[0..4] of TStream;
     FDevice: TDLDeviceType;
     FDeviceName: string;
     FTextSHA256: string;
@@ -218,7 +218,7 @@ begin
       else
         FileName := DataNames[I - 2];
       RequireCpu(ModelText(Artifact.GetValue('file')) = FileName, 'OmDet artifact filename differs');
-      FLeases[I] := TFileStream.Create(BundleMember(Folder, FileName), fmOpenRead or fmShareDenyWrite);
+      FLeases[I] := TNativeReadStream.Create(BundleMember(Folder, FileName));
       RequireCpu(
         (FLeases[I].Size > 0) and (FLeases[I].Size <= 1024 * 1024 * 1024) and (FLeases[I].Size = ModelInt(Artifact.GetValue('bytes'), 'artifact size')),
         'OmDet artifact size differs'

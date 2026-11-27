@@ -23,15 +23,15 @@ The retained Qwen2.5-0.5B-Instruct legacy profile uses all 24 layers, FP32, batc
 | `pascal/TVM.WindowsPaths.pas` | Windows Unicode runtime paths and temporary model-directory aliases |
 | `pascal/TVM.Threads.pas` | Explicit shutdown of a short-lived inference thread's native pool |
 | `native/windows-runtime/` | Pinned source archives, Windows pool-lifecycle patch and core build recipe |
-| `runtime/windows-x64-cuda/` | Runtime destination, five tokenizer files, model source pins and licences |
+| `runtime/windows-x64-cuda/` | Runtime destination, five tokenizer files, model source pins and licenses |
 | `recipes/TVMBuildOptions.txt` | Historical CPU build-options template; it is separate from the supplied CUDA kit |
 | `docs/PASCAL-API-NOTES.md` | Ownership, tensor layout and runtime-lifetime requirements |
 
-Use the four native runtime DLLs supplied with the Windows x64 SDK. Keep them together. The runtime requires the Microsoft Visual C++ x64 runtime. CUDA also requires a compatible NVIDIA driver.
+For examples set up by Prepare, use the four native runtime DLLs supplied with the Windows x64 SDK and keep them together. Manual Dense Qwen2.5 CUDA builds can use that SDK or the matching runtime installed by `scripts/install_tvm_windows.py`, as described below. The runtime requires the Microsoft Visual C++ x64 runtime. CUDA also requires a compatible NVIDIA driver.
 
-The SDK core includes the [Windows host-thread shutdown correction](native/windows-runtime/README.md). An unmodified upstream core does not provide that entry and is rejected before inference. The runtime installer verifies upstream companion DLLs and uses the matching SDK core, selected with `--runtime-core` when installing from a source checkout. It copies the runtime licenses and notices into the destination. Python compiler packages retain their upstream binaries.
+The SDK core includes the [Windows host-thread shutdown correction](native/windows-runtime/README.md). An unmodified upstream core does not provide that entry point and is rejected before inference. The runtime installer verifies upstream companion DLLs and uses the matching SDK core, selected with `--runtime-core` when installing from a source checkout. It copies the runtime licenses and notices into the destination. Python compiler packages retain their upstream binaries.
 
-The retained FFI package version and its C ABI version are different identifiers: the pinned DLL reports C ABI `0.1.14`. The consumers check both the exact DLL bytes and that ABI tuple. CPU vision loads the first three runtime DLLs and does not initialize CUDA.
+The FFI package version and its C ABI version are separate identifiers; the pinned DLL reports C ABI `0.1.14`. The consumers check both the exact DLL bytes and that ABI tuple. CPU vision loads the first three runtime DLLs and does not initialize CUDA.
 
 ## Build the Pascal example manually
 
@@ -39,7 +39,7 @@ Extract `crosspascal`, `crosspascal-tvm` and `crosspascal-opencv` as sibling dir
 
 `TVM.pas` currently exposes image helpers through `OpenCVTypes`, `OpenCVConsts` and `CrossVision.Mat`. Their complete Pascal sources are supplied by the sibling OpenCV repository. The text-only Qwen example does not initialize OpenCV or call its image operations. Leptonica is not a dependency of this text route.
 
-For image classification and detection, open `crosspascal/examples/vision-models/VisionModels.dproj` in Delphi or `VisionModels.lpi` in Lazarus and build for Windows x64. That project also uses the main repository's geometry types and initializes the locally built OpenCV runtime. Its [README](https://github.com/pisarev/crosspascal/tree/main/examples/vision-models) describes the five profiles, external model-bundle requirements, preprocessing and source-provenance limits.
+For image classification and detection, open `crosspascal/examples/vision-models/VisionModels.dproj` in Delphi or `VisionModels.lpi` in Lazarus and build for Windows x64. That project also uses the main repository's geometry types and initializes the OpenCV runtime. Its [README](https://github.com/pisarev/crosspascal/tree/main/examples/vision-models) describes the five profiles, external model-bundle requirements, preprocessing and source-provenance limits.
 
 For background removal, open `crosspascal/examples/birefnet/BiRefNet.dproj` or `BiRefNet.lpi`. The [BiRefNet example](https://github.com/pisarev/crosspascal/tree/main/examples/birefnet) uses OpenCV to decode the image and save the original-size mask or transparent PNG. `TBiRefNetModel` checks the pinned source, tensor contract, model DLL hash, and selected CPU/CUDA device. Its 800-pixel profile differs from the upstream 2048-pixel workflow.
 
@@ -47,7 +47,7 @@ After the last inference, call `TBiRefNetModel.Close` before reporting success, 
 
 For text-guided object detection, open `crosspascal/examples/omdet-turbo/OmDetTurbo.dproj` or `OmDetTurbo.lpi`. The [OmDet-Turbo example](https://github.com/pisarev/crosspascal/tree/main/examples/omdet-turbo) uses `TOmDetModel` to run the CLIP text encoder and Swin-Tiny detector on CPU or CUDA. It accepts up to 16 class names and a task instruction, then saves boxes, scores, and an annotated image. Bundle loading checks all five artifacts and their hashes.
 
-For YOLO, open `crosspascal/examples/yolo-models/YoloModels.dproj` or `YoloModels.lpi`. The [YoloModels example](https://github.com/pisarev/crosspascal/tree/main/examples/yolo-models) runs 23 profiles across seven tasks on CPU or CUDA. `LoadYoloBundle` in `CrossVision.ML.YoloBundle` takes the expected profile and manifest pin; the application then opens the matching typed interface. `TYoloRunOptions` in `TVM.Yolo.RunOptions` sets box thresholds and a stop callback. See the [bundle and API notes](https://github.com/pisarev/crosspascal-convert/blob/main/docs/YOLO-NATIVE.md).
+For YOLO, open `crosspascal/examples/yolo-models/YoloModels.dproj` or `YoloModels.lpi`. The [YoloModels example](https://github.com/pisarev/crosspascal/tree/main/examples/yolo-models) runs 115 profiles across seven tasks on CPU or CUDA. `LoadYoloBundle` in `CrossVision.ML.YoloBundle` takes the expected profile and manifest pin; the application then opens the matching typed interface. `TYoloRunOptions` in `TVM.Yolo.RunOptions` sets box thresholds and a stop callback. See the [bundle and API notes](https://github.com/pisarev/crosspascal-convert/blob/main/docs/YOLO-NATIVE.md).
 
 ## Model and runtime checks
 
@@ -73,18 +73,18 @@ Generation reports include `decoded_cuda_buffers`: whether the pool is
 enabled, planned and allocated bytes, storage allocations, rentals, and groups.
 Counters accumulate over the model lifetime.
 
-## Licences
+## Licenses
 
-Original Pascal code and repository documentation use the root [MIT licence](LICENSE). Upstream TVM licences and notices are in `licenses/`. The [TVM FFI 0.1.14 licence](runtime/windows-x64-cuda/LICENSE-tvm-ffi-0.1.14.txt) and [notice](runtime/windows-x64-cuda/NOTICE-tvm-ffi-0.1.14.txt) are in the runtime kit. The Qwen model and tokenizer retain their official Apache 2.0 licence in `runtime/windows-x64-cuda/LICENSE-Qwen2.5-0.5B-Instruct.txt`; `MODEL-SOURCE.json` identifies the immutable upstream source and all seven source-file pins. See [runtime provenance](runtime/RUNTIME-PROVENANCE-windows-x64-cuda.json). The provenance report describes the files in the runtime kit; it is stored beside that directory and is not an input to the model-bundle copier.
+Original Pascal code and repository documentation use the root [MIT license](LICENSE). Upstream TVM licenses and notices are in `licenses/`. The [TVM FFI 0.1.14 license](runtime/windows-x64-cuda/LICENSE-tvm-ffi-0.1.14.txt) and [notice](runtime/windows-x64-cuda/NOTICE-tvm-ffi-0.1.14.txt) are in the runtime kit. The Qwen model and tokenizer retain their official Apache 2.0 license in `runtime/windows-x64-cuda/LICENSE-Qwen2.5-0.5B-Instruct.txt`; `MODEL-SOURCE.json` identifies the immutable upstream source and all seven source-file pins. See [runtime provenance](runtime/RUNTIME-PROVENANCE-windows-x64-cuda.json). The provenance report describes the files in the runtime kit; it is stored beside that directory and is not an input to the model-bundle copier.
 
 ### Windows TVM FFI
 
-The Pascal examples and the converter use the same official TVM FFI 0.1.14 DLL. The Windows C ABI is 0.1.14. Apache TVM FFI includes the [Windows DbgHelp fix](https://github.com/apache/tvm-ffi/pull/754). The installer verifies the upstream wheel checksum and the DLL checksum before installation. Keep the upstream Apache licence and notice with the runtime.
+The ready SDK supplies TVM FFI 0.1.14 with the CrossPascal Windows UTF-8 path patch. Its source and build recipe are in [native/windows-runtime](native/windows-runtime/README.md). The separate Python installer below uses the pinned official FFI wheel. Both variants expose Windows C ABI 0.1.14. Apache TVM FFI includes the [Windows DbgHelp fix](https://github.com/apache/tvm-ffi/pull/754). The installer verifies the upstream wheel checksum and the DLL checksum before installation. Keep the upstream Apache license and notice with the runtime.
 
-The installer also preserves all licence and notice members supplied by the
+The installer also preserves all license and notice members supplied by the
 two pinned upstream wheels. Their exact origins and hashes are recorded in
 [`licenses/upstream-windows-0.26.0/SOURCE.json`](licenses/upstream-windows-0.26.0/SOURCE.json).
-Each native installation includes that licence directory and
+Each native installation includes that license directory and
 `TVM-PROVENANCE.json`, which lists the installed native libraries and metadata.
 The native core is built from modified TVM source and provides explicit
 host-thread pool shutdown. The companion DLLs retain their upstream bytes.
@@ -103,9 +103,9 @@ python scripts/install_tvm_windows.py --offline --cache wheel-cache --destinatio
 ```
 
 The installer accepts an existing destination only when its corresponding
-files are identical. It rejects a different DLL or licence instead of replacing
+files are identical. It rejects a different DLL or license instead of replacing
 it. Model-specific libraries, such as the SentencePiece wrapper, retain their
-own source and licence records and must be added separately when needed.
+own source and license records and must be added separately when needed.
 When `--site-packages` is supplied, the Python compiler packages retain their
 upstream binaries; the patched native core is installed only in the selected
 native destination.

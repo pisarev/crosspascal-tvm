@@ -1,4 +1,4 @@
-﻿{ ************************************************************************** }
+{ ************************************************************************** }
 {                                                                            }
 { QwenTokenizer                                                              }
 {                                                                            }
@@ -47,7 +47,7 @@ type
     procedure LoadByteLevelCore(const Data: TJSONObject;
       const Vocabulary: TArray<TVocabularyEntry>);
   public
-    function Load(const Directory: string; const Error: PString): Boolean; override;
+    function Load(const Directory: UnicodeString; const Error: PString): Boolean; override;
     procedure LoadByteLevelJSON(const Data: TJSONObject);
     procedure LoadByteLevelFile(const FileName: UnicodeString);
     function Loaded: Boolean; override;
@@ -123,9 +123,9 @@ begin
     FSingle[I] := -1;
 end;
 
-function TQwenTokenizer.Load(const Directory: string; const Error: PString): Boolean;
+function TQwenTokenizer.Load(const Directory: UnicodeString; const Error: PString): Boolean;
 var
-  Dir: string;
+  Dir: UnicodeString;
   Index, Merges: TBytes;
   Spans: PCardinal;
   Triples: PInteger;
